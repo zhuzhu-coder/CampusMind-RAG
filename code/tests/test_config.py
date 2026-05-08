@@ -8,7 +8,7 @@ def test_default_paths_are_absolute_and_project_relative():
 
     assert Path(config.data_path).is_absolute()
     assert Path(config.index_save_path).is_absolute()
-    assert Path(config.data_path) == PROJECT_ROOT / "data" / "cook"
+    assert Path(config.data_path) == PROJECT_ROOT / "data" / "campus"
     assert Path(config.index_save_path) == PROJECT_ROOT / "vector_index"
 
 

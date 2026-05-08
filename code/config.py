@@ -26,7 +26,7 @@ class RAGConfig:
     """RAG系统配置类"""
 
     # 路径配置
-    data_path: str = field(default_factory=lambda: str(PROJECT_ROOT / "data" / "cook"))# 默认数据目录
+    data_path: str = field(default_factory=lambda: str(PROJECT_ROOT / "data" / "campus"))# 默认数据目录
     index_save_path: str = field(default_factory=lambda: str(PROJECT_ROOT / "vector_index"))# 默认向量索引目录
 
     # 模型配置
