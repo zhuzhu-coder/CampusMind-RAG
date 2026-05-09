@@ -85,7 +85,7 @@ class IndexConstructionModule:
         """
         根据当前源数据和索引配置构建 manifest，用于判断本地索引是否过期
         Args:
-            data_path: Markdown 菜谱数据目录
+            data_path: 校园文档数据目录
             chunks: 可选的分块结果；重建索引后用于记录 chunk_count
         Returns:
             manifest 字典
@@ -165,7 +165,7 @@ class IndexConstructionModule:
         """
         计算源 Markdown 文件指纹，文件路径或内容变化都会改变该指纹
         Args:
-            data_path: Markdown 菜谱数据目录
+            data_path: 校园文档数据目录
         Returns:
             sha256 指纹字符串
         """
@@ -175,7 +175,7 @@ class IndexConstructionModule:
         """
         收集源 Markdown 文件的稳定路径和内容哈希
         Args:
-            data_path: Markdown 菜谱数据目录
+            data_path: 校园文档数据目录
         Returns:
             每个文件的相对路径和内容哈希的列表
         """

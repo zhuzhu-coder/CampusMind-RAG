@@ -4,59 +4,62 @@ from evals.run_retrieval_eval import (
     configure_utf8_stdio,
     _build_bm25_only_search_fn,
     evaluate_retrieval_cases,
-    extract_dish_names,
+    extract_doc_titles,
     reciprocal_rank,
+    load_eval_cases,
 )
 from config import RAGConfig
+from pathlib import Path
+import json
 
 
-def test_extract_dish_names_prefers_metadata_over_content():
+def test_extract_doc_titles_prefers_metadata_over_content():
     docs = [
-        Document(page_content="# 番茄炒蛋\n做法", metadata={"dish_name": "番茄炒蛋"}),
-        Document(page_content="# 番茄炒蛋\n步骤", metadata={"dish_name": "番茄炒蛋"}),
-        Document(page_content="# 红烧肉\n做法", metadata={}),
+        Document(page_content="# 学生请假管理办法\n请假审批流程", metadata={"doc_title": "学生请假管理办法"}),
+        Document(page_content="# 学生请假管理办法\n补充说明", metadata={"doc_title": "学生请假管理办法"}),
+        Document(page_content="# 期末考试安排\n考试通知", metadata={}),
     ]
 
-    assert extract_dish_names(docs) == ["番茄炒蛋", "红烧肉"]
+    assert extract_doc_titles(docs) == ["学生请假管理办法", "期末考试安排"]
 
 
-def test_reciprocal_rank_returns_first_expected_dish_rank():
-    ranked_dishes = ["蒜蓉西兰花", "番茄炒蛋", "红烧肉"]
+def test_reciprocal_rank_returns_first_expected_doc_title():
+    ranked_doc_titles = ["校园卡补办说明", "学生请假管理办法", "期末考试安排"]
 
-    assert reciprocal_rank(ranked_dishes, ["红烧肉", "番茄炒蛋"]) == 0.5
-    assert reciprocal_rank(ranked_dishes, ["不存在的菜"]) == 0.0
+    assert reciprocal_rank(ranked_doc_titles, ["期末考试安排", "学生请假管理办法"]) == 0.5
+    assert reciprocal_rank(ranked_doc_titles, ["不存在的文档"]) == 0.0
 
 
 def test_evaluate_retrieval_cases_computes_strategy_metrics():
     cases = [
         {
             "id": "case-1",
-            "question": "番茄炒蛋怎么做？",
-            "expected_dishes": ["番茄炒蛋"],
+            "question": "学生请假超过三天需要谁审批？",
+            "expected_doc_titles": ["学生请假管理办法"],
         },
         {
             "id": "case-2",
-            "question": "推荐一个排骨菜",
-            "expected_dishes": ["糖醋排骨"],
+            "question": "校园卡补办需要什么材料？",
+            "expected_doc_titles": ["校园卡补办说明"],
         },
     ]
 
     strategy_results = {
         "vector": {
-            "番茄炒蛋怎么做？": [
-                Document(page_content="# 番茄炒蛋\n做法", metadata={"dish_name": "番茄炒蛋"})
+            "学生请假超过三天需要谁审批？": [
+                Document(page_content="# 学生请假管理办法\n请假审批", metadata={"doc_title": "学生请假管理办法"})
             ],
-            "推荐一个排骨菜": [
-                Document(page_content="# 红烧肉\n做法", metadata={"dish_name": "红烧肉"})
+            "校园卡补办需要什么材料？": [
+                Document(page_content="# 期末考试安排\n考试通知", metadata={"doc_title": "期末考试安排"})
             ],
         },
         "hybrid": {
-            "番茄炒蛋怎么做？": [
-                Document(page_content="# 番茄炒蛋\n做法", metadata={"dish_name": "番茄炒蛋"})
+            "学生请假超过三天需要谁审批？": [
+                Document(page_content="# 学生请假管理办法\n请假审批", metadata={"doc_title": "学生请假管理办法"})
             ],
-            "推荐一个排骨菜": [
-                Document(page_content="# 红烧肉\n做法", metadata={"dish_name": "红烧肉"}),
-                Document(page_content="# 糖醋排骨\n做法", metadata={"dish_name": "糖醋排骨"}),
+            "校园卡补办需要什么材料？": [
+                Document(page_content="# 期末考试安排\n考试通知", metadata={"doc_title": "期末考试安排"}),
+                Document(page_content="# 校园卡补办说明\n补办流程", metadata={"doc_title": "校园卡补办说明"}),
             ],
         },
     }
@@ -78,7 +81,32 @@ def test_evaluate_retrieval_cases_computes_strategy_metrics():
     assert report["strategies"]["hybrid"]["hit_at_1"] == 0.5
     assert report["strategies"]["hybrid"]["hit_at_3"] == 1.0
     assert report["strategies"]["hybrid"]["mrr"] == 0.75
-    assert report["cases"][1]["results"]["hybrid"]["ranked_dishes"] == ["红烧肉", "糖醋排骨"]
+    assert report["cases"][1]["results"]["hybrid"]["ranked_doc_titles"] == ["期末考试安排", "校园卡补办说明"]
+    assert "expected_dishes" not in report["cases"][0]
+    assert "ranked_dishes" not in report["cases"][1]["results"]["hybrid"]
+
+
+def test_load_eval_cases_rejects_legacy_expected_dishes_field(tmp_path):
+    legacy_eval = tmp_path / "legacy.jsonl"
+    legacy_eval.write_text(
+        json.dumps(
+            {
+                "id": "legacy",
+                "question": "学生请假超过三天需要谁审批？",
+                "expected_dishes": ["学生请假管理办法"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_eval_cases(legacy_eval)
+        raised = False
+    except ValueError:
+        raised = True
+
+    assert raised
 
 
 def test_configure_utf8_stdio_reconfigures_streams_when_supported():
@@ -102,7 +130,7 @@ def test_build_bm25_only_search_fn_does_not_require_dashscope_api_key(monkeypatc
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
 
     search_fn = _build_bm25_only_search_fn(RAGConfig())
-    docs = search_fn("bm25", "番茄炒蛋怎么做？", top_k=1)
+    docs = search_fn("bm25", "学生请假超过三天需要谁审批？", top_k=1)
 
     assert docs
-    assert docs[0].metadata["dish_name"] == "番茄炒蛋"
+    assert docs[0].metadata["doc_title"] == "学生请假管理办法"

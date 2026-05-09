@@ -12,8 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List
 
 # 导入项目根目录
-CODE_DIR = Path(__file__).resolve().parents[1] # 当前文件绝对路径的上两层目录 
-# 加入模块搜索路径
+CODE_DIR = Path(__file__).resolve().parents[1]
 if str(CODE_DIR) not in sys.path:
     sys.path.append(str(CODE_DIR))
 
@@ -24,14 +23,13 @@ from rag_modules.data_preparation import DataPreparationModule
 from rag_modules.retrieval_optimization import tokenize_chinese_text
 
 # 默认评估集文件路径
-DEFAULT_EVAL_SET = Path(__file__).resolve().with_name("recipe_eval_set.jsonl")
+DEFAULT_EVAL_SET = Path(__file__).resolve().with_name("campus_smoke_eval_set.jsonl")
 # 默认评估的检索策略
 DEFAULT_STRATEGIES = ("vector", "bm25", "hybrid")
 
 
 def configure_utf8_stdio(stdout=sys.stdout, stderr=sys.stderr):
     """将标准输出和标准错误流配置为 UTF-8 编码"""
-    # 分别处理输出流和错误流
     for stream in (stdout, stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure:
@@ -41,10 +39,6 @@ def configure_utf8_stdio(stdout=sys.stdout, stderr=sys.stderr):
 def load_eval_cases(path: Path) -> List[Dict[str, Any]]:
     """
     从 JSONL 文件读取评估问题集
-    Args:
-        path: JSONL 文件路径
-    Returns:
-        评估问题集列表
     """
     cases = []
     with open(path, "r", encoding="utf-8") as f:
@@ -52,72 +46,56 @@ def load_eval_cases(path: Path) -> List[Dict[str, Any]]:
             line = line.strip()
             if not line:
                 continue
-            # 解析 JSON 为字典格式
             case = json.loads(line)
             if not case.get("id"):
                 raise ValueError(f"{path}:{line_number} 缺少 id")
             if not case.get("question"):
                 raise ValueError(f"{path}:{line_number} 缺少 question")
-            if not case.get("expected_dishes"):
-                raise ValueError(f"{path}:{line_number} 缺少 expected_dishes")
+
+            expected_doc_titles = case.get("expected_doc_titles")
+            if not expected_doc_titles:
+                raise ValueError(f"{path}:{line_number} 缺少 expected_doc_titles")
+
+            case["expected_doc_titles"] = expected_doc_titles
             cases.append(case)
     return cases
 
 
-def extract_dish_names(docs: Iterable[Document]) -> List[str]:
+def extract_doc_titles(docs: Iterable[Document]) -> List[str]:
     """
-    从检索结果中提取菜名，用于和 expected_dishes 对齐
-    Args:
-        docs: 检索结果文档列表
-    Returns:
-        菜名列表
+    从检索结果中提取文档标题，用于和 expected_doc_titles 对齐
     """
-    dish_names = []
+    doc_titles = []
     seen = set()
     for doc in docs:
         metadata = doc.metadata or {}
-        dish_name = metadata.get("dish_name")
-        if not dish_name:
-            # 如果元数据中没有菜名，尝试从文档内容的第一行提取菜名
+        doc_title = metadata.get("doc_title")
+        if not doc_title:
             first_line = (doc.page_content or "").strip().splitlines()[0:1]
-            dish_name = first_line[0].replace("#", "").strip() if first_line else ""
-        dish_name = dish_name or "未知菜品"
-        if dish_name in seen:
+            doc_title = first_line[0].replace("#", "").strip() if first_line else ""
+        doc_title = doc_title or "未知文档"
+        if doc_title in seen:
             continue
-        dish_names.append(dish_name)
-        seen.add(dish_name)
-    return dish_names
+        doc_titles.append(doc_title)
+        seen.add(doc_title)
+    return doc_titles
 
 
-def reciprocal_rank(ranked_dishes: List[str], expected_dishes: List[str]) -> float:
+def reciprocal_rank(ranked_doc_titles: List[str], expected_doc_titles: List[str]) -> float:
     """
-    计算第一个命中标准菜名的倒数排名
-    Args:
-        ranked_dishes: 检索结果菜名列表
-        expected_dishes: 标准菜名列表
-    Returns:
-        倒数排名
+    计算第一个命中标准文档标题的倒数排名
     """
-    expected = set(expected_dishes)
-    for rank, dish_name in enumerate(ranked_dishes, 1):
-        if dish_name in expected:
+    expected = set(expected_doc_titles)
+    for rank, doc_title in enumerate(ranked_doc_titles, 1):
+        if doc_title in expected:
             return 1.0 / rank
     return 0.0
 
 
-def _hit_at(ranked_dishes: List[str], expected_dishes: List[str], k: int) -> float:
-    """
-    计算 hit@k 指标
-    Args:
-        ranked_dishes: 检索结果菜名列表
-        expected_dishes: 标准菜名列表
-        k: 要计算的 hit@k 指标
-    Returns:
-        hit@k 指标值
-    """
-    expected = set(expected_dishes)
-    # 只要检索结果中包含一个标准菜名，hit@k 就为 1
-    return 1.0 if any(dish_name in expected for dish_name in ranked_dishes[:k]) else 0.0
+def _hit_at(ranked_doc_titles: List[str], expected_doc_titles: List[str], k: int) -> float:
+    """计算 hit@k 指标"""
+    expected = set(expected_doc_titles)
+    return 1.0 if any(doc_title in expected for doc_title in ranked_doc_titles[:k]) else 0.0
 
 
 def evaluate_retrieval_cases(
@@ -128,53 +106,43 @@ def evaluate_retrieval_cases(
 ) -> Dict[str, Any]:
     """
     对多种检索策略计算 hit@1、hit@k 和 MRR
-    Args:
-        cases: 评估问题列表
-        strategies: 需要评估的策略名
-        search_fn: 接收 strategy、question、top_k 并返回文档列表的函数
-        top_k: 每个策略返回的检索结果数量
-    Returns:
-        包含总体指标和逐题结果的报告字典
     """
     strategies = list(strategies)
-    # 给每个策略准备一组指标累计值
     metric_sums = {
         strategy: {"hit_at_1": 0.0, f"hit_at_{top_k}": 0.0, "mrr": 0.0}
         for strategy in strategies
     }
-    # 逐题结果列表
     case_reports = []
 
     for case in cases:
         question = case["question"]
-        expected_dishes = case["expected_dishes"]
+        expected_doc_titles = case["expected_doc_titles"]
         case_report = {
             "id": case["id"],
             "question": question,
-            "expected_dishes": expected_dishes,
+            "expected_doc_titles": expected_doc_titles,
             "results": {},
         }
-        # 遍历每个策略
+
         for strategy in strategies:
             docs = search_fn(strategy, question, top_k)
-            ranked_dishes = extract_dish_names(docs)
-            hit_at_1 = _hit_at(ranked_dishes, expected_dishes, 1)  # 第一个结果是否命中标准答案
-            hit_at_k = _hit_at(ranked_dishes, expected_dishes, top_k)  # top_k 个结果是否命中标准答案
-            mrr = reciprocal_rank(ranked_dishes, expected_dishes)  # 第一个命中标准菜名的倒数排名
-            # 累加到指标累计值中
+            ranked_doc_titles = extract_doc_titles(docs)
+            hit_at_1 = _hit_at(ranked_doc_titles, expected_doc_titles, 1)
+            hit_at_k = _hit_at(ranked_doc_titles, expected_doc_titles, top_k)
+            mrr = reciprocal_rank(ranked_doc_titles, expected_doc_titles)
+
             metric_sums[strategy]["hit_at_1"] += hit_at_1
             metric_sums[strategy][f"hit_at_{top_k}"] += hit_at_k
             metric_sums[strategy]["mrr"] += mrr
-            # 记录逐题结果
             case_report["results"][strategy] = {
-                "ranked_dishes": ranked_dishes,
+                "ranked_doc_titles": ranked_doc_titles,
                 "hit_at_1": hit_at_1,
                 f"hit_at_{top_k}": hit_at_k,
                 "mrr": mrr,
             }
 
         case_reports.append(case_report)
-    # 把累计值转换为平均值
+
     case_count = len(cases)
     strategy_metrics = {}
     for strategy, sums in metric_sums.items():
@@ -197,10 +165,6 @@ def evaluate_retrieval_cases(
 def _build_search_fn(system: Any):
     """
     构建一个检索函数，根据系统配置选择合适的检索模块
-    Args:
-        system: 食谱RAG系统对象
-    Returns:
-        检索函数，接收 strategy、question、top_k 并返回文档列表
     """
     retrieval_module = system.retrieval_module
 
@@ -219,10 +183,6 @@ def _build_search_fn(system: Any):
 def _build_bm25_only_search_fn(config: RAGConfig):
     """
     构建只依赖本地文档和 BM25 的检索函数，适合纯检索评估
-    Args:
-        config: RAG 配置
-    Returns:
-        检索函数，接收 strategy、question、top_k 并返回文档列表
     """
     data_module = DataPreparationModule(config.data_path)
     data_module.load_documents()
@@ -245,25 +205,17 @@ def _build_bm25_only_search_fn(config: RAGConfig):
 def _build_full_search_fn(config: RAGConfig):
     """
     构建需要完整 RAG 系统的检索函数
-    Args:
-        config: RAG 配置
-    Returns:
-        检索函数，接收 strategy、question、top_k 并返回文档列表
     """
-    from main import RecipeRAGSystem
+    from main import CampusRAGSystem
 
-    system = RecipeRAGSystem(config)
+    system = CampusRAGSystem(config)
     system.initialize_system()
     system.build_knowledge_base()
     return _build_search_fn(system)
 
 
 def print_report(report: Dict[str, Any]):
-    """
-    打印适合命令行阅读的评估报告
-    Args:
-        report: 包含总体指标和逐题结果的报告字典
-    """
+    """打印适合命令行阅读的评估报告"""
     summary = report["summary"]
     top_k = summary["top_k"]
     print(f"评估问题数: {summary['case_count']}")
@@ -280,9 +232,9 @@ def print_report(report: Dict[str, Any]):
     print("\n逐题结果:")
     for case in report["cases"]:
         print(f"- {case['id']} {case['question']}")
-        print(f"  expected: {', '.join(case['expected_dishes'])}")
+        print(f"  expected: {', '.join(case['expected_doc_titles'])}")
         for strategy, result in case["results"].items():
-            ranked = ", ".join(result["ranked_dishes"])
+            ranked = ", ".join(result["ranked_doc_titles"])
             print(
                 f"  {strategy}: hit@1={result['hit_at_1']:.0f}, "
                 f"hit@{top_k}={result[f'hit_at_{top_k}']:.0f}, "
@@ -292,7 +244,7 @@ def print_report(report: Dict[str, Any]):
 
 def main():
     configure_utf8_stdio()
-    parser = argparse.ArgumentParser(description="运行食谱RAG检索评估")
+    parser = argparse.ArgumentParser(description="运行校园RAG检索评估")
     parser.add_argument("--eval-set", type=Path, default=DEFAULT_EVAL_SET)
     parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument(

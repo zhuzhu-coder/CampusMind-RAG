@@ -1,5 +1,5 @@
 """
-响应模式定义
+校园知识库响应模式定义
 """
 
 from dataclasses import asdict, dataclass
@@ -10,12 +10,14 @@ from typing import Any, Dict, List, Optional
 class RetrievedSource:
     """与答案引用编号关联的召回文档块"""
 
-    source_id: int # 答案引用编号，同一菜谱的多个文档块可以共享编号
-    dish_name: str # 菜品名称
-    category: str # 分类
-    difficulty: str # 难度
+    source_id: int # 答案引用编号，同一文档的多个文档块可以共享编号
+    doc_title: str # 文档标题
+    doc_category: str # 文档分类
+    department: str # 发布部门
+    file_type: str # 文件类型
     section: str # 章节
     source: str # 来源文件路径
+    page: Optional[int] # 页码
     chunk_index: int # 文档块索引
     rrf_score: Optional[float] # RRF分数
     snippet: str # 文档块摘要

@@ -2,7 +2,7 @@ import os
 
 from config import RAGConfig
 from langchain_core.documents import Document
-from main import RecipeRAGSystem
+from main import CampusRAGSystem
 from rag_modules import RAGResponse
 
 
@@ -77,11 +77,11 @@ class FakeGenerationIntegrationModule:
 
     def generate_step_by_step_answer(self, question, parent_docs):
         self.generated_docs = parent_docs
-        dish_names = ",".join(parent_doc.metadata["dish_name"] for parent_doc in parent_docs)
-        return f"answer:{question}:{dish_names}"
+        doc_titles = ",".join(parent_doc.metadata["doc_title"] for parent_doc in parent_docs)
+        return f"answer:{question}:{doc_titles}"
 
 
-def test_recipe_rag_system_runs_end_to_end_without_network(monkeypatch):
+def test_campus_rag_system_runs_end_to_end_without_network(monkeypatch):
     import main as main_module
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
@@ -89,18 +89,19 @@ def test_recipe_rag_system_runs_end_to_end_without_network(monkeypatch):
     monkeypatch.setattr(main_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
 
     config = RAGConfig(top_k=2, retrieval_candidate_k=4)
-    system = RecipeRAGSystem(config)
+    system = CampusRAGSystem(config)
 
     system.initialize_system()
     system.build_knowledge_base()
-    answer = system.ask_question("番茄炒蛋怎么做？")
+    answer = system.ask_question("学生请假超过三天需要谁审批？")
 
-    assert answer.startswith("answer:番茄炒蛋怎么做？:")
-    assert "番茄炒蛋" in answer
+    assert answer.startswith("answer:学生请假超过三天需要谁审批？:")
+    assert "学生请假管理办法" in answer
     assert system.index_module.saved is True
     assert system.index_module.saved_manifest["chunk_count"] > 0
     assert system.index_module.received_manifest["source_document_count"] >= 1
     assert system.retrieval_module.candidate_k == 4
+    assert not hasattr(main_module, "RecipeRAGSystem")
 
 
 def test_ask_question_can_return_structured_sources(monkeypatch):
@@ -111,26 +112,28 @@ def test_ask_question_can_return_structured_sources(monkeypatch):
     monkeypatch.setattr(main_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
 
     config = RAGConfig(top_k=2, retrieval_candidate_k=4)
-    system = RecipeRAGSystem(config)
+    system = CampusRAGSystem(config)
 
     system.initialize_system()
     system.build_knowledge_base()
-    response = system.ask_question("番茄炒蛋怎么做？", return_sources=True)
+    response = system.ask_question("学生请假超过三天需要谁审批？", return_sources=True)
 
     assert isinstance(response, RAGResponse)
-    assert response.question == "番茄炒蛋怎么做？"
+    assert response.question == "学生请假超过三天需要谁审批？"
     assert response.route_type == "detail"
-    assert response.rewritten_query == "番茄炒蛋怎么做？"
-    assert response.answer.startswith("answer:番茄炒蛋怎么做？:")
+    assert response.rewritten_query == "学生请假超过三天需要谁审批？"
+    assert response.answer.startswith("answer:学生请假超过三天需要谁审批？:")
     assert response.sources
 
     source = response.sources[0]
     assert source.source_id == 1
-    assert source.dish_name
-    assert source.category
-    assert source.difficulty
+    assert source.doc_title
+    assert source.doc_category
+    assert source.department is not None
+    assert source.file_type
     assert source.section
     assert source.source.endswith(".md")
+    assert source.page is None or isinstance(source.page, int)
     assert source.chunk_index >= 0
     assert source.rrf_score is not None
     assert source.snippet
@@ -144,11 +147,11 @@ def test_generation_uses_parent_docs_while_sources_keep_retrieved_chunks(monkeyp
     monkeypatch.setattr(main_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
 
     config = RAGConfig(top_k=2, retrieval_candidate_k=4)
-    system = RecipeRAGSystem(config)
+    system = CampusRAGSystem(config)
 
     system.initialize_system()
     system.build_knowledge_base()
-    response = system.ask_question("番茄炒蛋怎么做？", return_sources=True)
+    response = system.ask_question("学生请假超过三天需要谁审批？", return_sources=True)
 
     generated_docs = system.generation_module.generated_docs
     assert generated_docs
@@ -156,39 +159,41 @@ def test_generation_uses_parent_docs_while_sources_keep_retrieved_chunks(monkeyp
     assert all(doc.metadata.get("doc_type") == "parent" for doc in generated_docs)
     assert all(source.chunk_index >= 0 for source in response.sources)
     assert {
-        doc.metadata.get("dish_name") for doc in generated_docs
+        doc.metadata.get("doc_title") for doc in generated_docs
     } == {
-        source.dish_name for source in response.sources
+        source.doc_title for source in response.sources
     }
 
 
 def test_aligned_sources_keep_all_chunks_with_parent_doc_source_ids():
-    system = RecipeRAGSystem.__new__(RecipeRAGSystem)
+    system = CampusRAGSystem.__new__(CampusRAGSystem)
     parent_docs = [
         Document(
-            page_content="# 清炒油麦菜\n完整菜谱",
+            page_content="# 学生请假管理办法\n完整文档",
             metadata={
                 "parent_id": "parent-a",
-                "dish_name": "清炒油麦菜",
-                "category": "素菜",
-                "difficulty": "非常简单",
-                "source": "data/cook/vegetable_dish/清炒油麦菜.md",
+                "doc_title": "学生请假管理办法",
+                "doc_category": "规章制度",
+                "department": "学生处",
+                "file_type": "md",
+                "source": "data/campus/regulations/学生请假管理办法.md",
             },
         ),
         Document(
-            page_content="# 蒜蓉西兰花\n完整菜谱",
+            page_content="# 期末考试安排\n完整文档",
             metadata={
                 "parent_id": "parent-b",
-                "dish_name": "蒜蓉西兰花",
-                "category": "素菜",
-                "difficulty": "非常简单",
-                "source": "data/cook/vegetable_dish/蒜蓉西兰花.md",
+                "doc_title": "期末考试安排",
+                "doc_category": "教务教学",
+                "department": "教务处",
+                "file_type": "txt",
+                "source": "data/campus/teaching/期末考试安排.txt",
             },
         ),
     ]
     chunks = [
         Document(
-            page_content="# 食材\n油麦菜、蒜。",
+            page_content="# 请假审批\n超过三天需审批。",
             metadata={
                 "parent_id": "parent-a",
                 "chunk_index": 0,
@@ -196,7 +201,7 @@ def test_aligned_sources_keep_all_chunks_with_parent_doc_source_ids():
             },
         ),
         Document(
-            page_content="# 小贴士\n大火快炒。",
+            page_content="# 补充说明\n需要学院审核。",
             metadata={
                 "parent_id": "parent-a",
                 "chunk_index": 2,
@@ -204,7 +209,7 @@ def test_aligned_sources_keep_all_chunks_with_parent_doc_source_ids():
             },
         ),
         Document(
-            page_content="# 食材\n西兰花、蒜。",
+            page_content="# 缓考申请\n通过教务系统。",
             metadata={
                 "parent_id": "parent-b",
                 "chunk_index": 0,
@@ -216,17 +221,17 @@ def test_aligned_sources_keep_all_chunks_with_parent_doc_source_ids():
     sources = system._build_aligned_sources(parent_docs, chunks)
 
     assert [source.source_id for source in sources] == [1, 1, 2]
-    assert [source.dish_name for source in sources] == ["清炒油麦菜", "清炒油麦菜", "蒜蓉西兰花"]
-    assert [source.section for source in sources] == ["食材", "小贴士", "食材"]
+    assert [source.doc_title for source in sources] == ["学生请假管理办法", "学生请假管理办法", "期末考试安排"]
+    assert [source.section for source in sources] == ["请假审批", "补充说明", "缓考申请"]
     assert [source.chunk_index for source in sources] == [0, 2, 0]
 
 
-def test_recipe_rag_system_default_config_reads_current_environment(monkeypatch):
+def test_campus_rag_system_default_config_reads_current_environment(monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
     monkeypatch.setenv("RAG_TOP_K", "7")
     monkeypatch.setenv("RAG_RETRIEVAL_CANDIDATE_K", "14")
 
-    system = RecipeRAGSystem()
+    system = CampusRAGSystem()
 
     assert system.config.top_k == 7
     assert system.config.retrieval_candidate_k == 14

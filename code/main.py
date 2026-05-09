@@ -39,8 +39,8 @@ logging.getLogger("jieba").setLevel(logging.WARNING)
 # 创建当前模块的日志记录器
 logger = logging.getLogger(__name__)
 
-class RecipeRAGSystem:
-    """食谱RAG系统主类"""
+class CampusRAGSystem:
+    """校园知识库RAG系统主类"""
 
     def __init__(self, config: RAGConfig = None):
         """
@@ -58,9 +58,15 @@ class RecipeRAGSystem:
         # 回答生成模块
         self.generation_module = None
 
-        # 检查数据路径是否存在
-        if not Path(self.config.data_path).exists():
-            raise FileNotFoundError(f"数据路径不存在: {self.config.data_path}")
+        # 检查数据路径是否存在；如果环境变量还指向旧路径，自动回退到校园语料目录
+        data_path = Path(self.config.data_path)
+        if not data_path.exists():
+            campus_data_path = PROJECT_ROOT / "data" / "campus"
+            if campus_data_path.exists():
+                logger.warning("数据路径不存在，已回退到校园语料: %s -> %s", data_path, campus_data_path)
+                self.config.data_path = str(campus_data_path)
+            else:
+                raise FileNotFoundError(f"数据路径不存在: {self.config.data_path}")
 
         # 在环境变量中检查API密钥是否存在
         if not os.getenv("DASHSCOPE_API_KEY"):
@@ -101,7 +107,7 @@ class RecipeRAGSystem:
         vectorstore = self.index_module.load_index(expected_manifest)
 
         # 2. 无论向量索引是否命中缓存，BM25 和父文档回答都需要当前文档与分块
-        print("加载食谱文档...")
+        print("加载校园文档...")
         self.data_module.load_documents()
         print("进行文本分块...")
         chunks = self.data_module.chunk_documents()
@@ -135,8 +141,9 @@ class RecipeRAGSystem:
         print(f"\n📊 知识库统计:")
         print(f"   文档总数: {stats['total_documents']}")
         print(f"   文本块数: {stats['total_chunks']}")
-        print(f"   菜品分类: {list(stats['categories'].keys())}")
-        print(f"   难度分布: {stats['difficulties']}")
+        print(f"   文档分类: {list(stats['categories'].keys())}")
+        print(f"   部门分布: {list(stats['departments'].keys())}")
+        print(f"   文件类型: {list(stats['file_types'].keys())}")
 
         print("✅ 知识库构建完成！")
     
@@ -186,16 +193,16 @@ class RecipeRAGSystem:
         if relevant_chunks:
             chunk_info = []
             for chunk in relevant_chunks:
-                dish_name = chunk.metadata.get('dish_name', '未知菜品')
+                doc_title = chunk.metadata.get('doc_title', '未知文档')
                 # 尝试从内容中提取章节标题
                 content_preview = chunk.page_content[:100].strip()
                 if content_preview.startswith('#'):
                     # 如果是标题开头，提取标题（仅取第一行）
                     title_end = content_preview.find('\n') if '\n' in content_preview else len(content_preview)
                     section_title = content_preview[:title_end].replace('#', '').strip() # 移除标题前的#符号并去空格
-                    chunk_info.append(f"{dish_name}({section_title})")
+                    chunk_info.append(f"{doc_title}({section_title})")
                 else:
-                    chunk_info.append(f"{dish_name}(内容片段)")
+                    chunk_info.append(f"{doc_title}(内容片段)")
 
             print(f"找到 {len(relevant_chunks)} 个相关文档块: {', '.join(chunk_info)}")
         else:
@@ -206,26 +213,26 @@ class RecipeRAGSystem:
 
         # 5. 检查是否找到相关内容
         if not relevant_chunks:
-            answer = "抱歉，没有找到相关的食谱信息。请尝试其他菜品名称或关键词。"
+            answer = "抱歉，没有找到相关的校园文档信息。请尝试其他标题或关键词。"
             if return_sources:
                 return self._build_rag_response(question, route_type, rewritten_query, answer, sources)
             return answer
 
         # 6. 根据路由类型选择回答方式
         if route_type == 'list':
-            # 列表查询：直接返回菜品名称列表
-            print("📋 生成菜品列表...")
+            # 列表查询：直接返回文档标题列表
+            print("📋 生成文档列表...")
             # 从检索到的文档块中映射出完整父文档
             relevant_parent_docs = self.data_module.get_parent_documents(relevant_chunks)
 
-            # 显示找到的完整菜谱名称
+            # 显示找到的完整文档名称
             parent_doc_names = []
             for parent_doc in relevant_parent_docs:
-                dish_name = parent_doc.metadata.get('dish_name', '未知菜品')
-                parent_doc_names.append(dish_name)
+                doc_title = parent_doc.metadata.get('doc_title', '未知文档')
+                parent_doc_names.append(doc_title)
 
             if parent_doc_names:
-                print(f"找到完整菜谱: {', '.join(parent_doc_names)}")
+                print(f"找到完整文档: {', '.join(parent_doc_names)}")
 
             sources = self._build_aligned_sources(relevant_parent_docs, relevant_chunks) if return_sources else []
             answer = self.generation_module.generate_list_answer(question, relevant_parent_docs)
@@ -237,14 +244,14 @@ class RecipeRAGSystem:
             print("获取完整父文档...")
             relevant_parent_docs = self.data_module.get_parent_documents(relevant_chunks)
 
-            # 显示找到的完整菜谱名称
+            # 显示找到的完整文档名称
             parent_doc_names = []
             for parent_doc in relevant_parent_docs:
-                dish_name = parent_doc.metadata.get('dish_name', '未知菜品')
-                parent_doc_names.append(dish_name)
+                doc_title = parent_doc.metadata.get('doc_title', '未知文档')
+                parent_doc_names.append(doc_title)
 
             if parent_doc_names:
-                print(f"找到完整菜谱: {', '.join(parent_doc_names)}")
+                print(f"找到完整文档: {', '.join(parent_doc_names)}")
             else:
                 print(f"对应 {len(relevant_parent_docs)} 个完整父文档")
 
@@ -296,14 +303,19 @@ class RecipeRAGSystem:
                 continue
 
             parent_metadata = parent_metadata_by_parent_id.get(parent_id, chunk_metadata)
+            page_value = parent_metadata.get("page")
+            if page_value is None:
+                page_value = chunk_metadata.get("page")
             sources.append(
                 RetrievedSource(
                     source_id=source_id,
-                    dish_name=parent_metadata.get("dish_name", "未知菜品"),
-                    category=parent_metadata.get("category", "未知"),
-                    difficulty=parent_metadata.get("difficulty", "未知"),
+                    doc_title=parent_metadata.get("doc_title", "未知文档"),
+                    doc_category=parent_metadata.get("doc_category", "未知"),
+                    department=parent_metadata.get("department", ""),
+                    file_type=parent_metadata.get("file_type", ""),
                     section=self._extract_section_title(chunk),
                     source=parent_metadata.get("source", ""),
+                    page=self._safe_int(page_value, None) if page_value is not None else None,
                     chunk_index=self._safe_int(chunk_metadata.get("chunk_index"), source_id - 1),
                     rrf_score=self._safe_float(chunk_metadata.get("rrf_score")),
                     snippet=self._build_snippet(chunk.page_content),
@@ -332,6 +344,8 @@ class RecipeRAGSystem:
     def _extract_section_title(chunk) -> str:
         """从文档块元数据或正文标题中提取章节名"""
         metadata = chunk.metadata or {}
+        if metadata.get("section"):
+            return str(metadata["section"])
         for key in ("三级标题", "二级标题", "主标题"):
             if metadata.get(key):
                 return str(metadata[key])
@@ -385,45 +399,37 @@ class RecipeRAGSystem:
         category_keywords = DataPreparationModule.get_supported_categories()
         for cat in category_keywords:
             if cat in query:
-                filters['category'] = cat
-                break
-
-        # 难度关键词
-        difficulty_keywords = DataPreparationModule.get_supported_difficulties()
-        # 按难度关键词长度排序，避免先匹配到较短的关键词
-        for diff in sorted(difficulty_keywords, key=len, reverse=True):
-            if diff in query:
-                filters['difficulty'] = diff
+                filters['doc_category'] = cat
                 break
 
         return filters
     
-    def get_ingredients_list(self, dish_name: str) -> str:
+    def get_related_documents(self, doc_title: str) -> str:
         """
-        获取指定菜品的食材信息
+        获取指定文档的相关信息
         Args:
-            dish_name: 菜品名称
+            doc_title: 文档标题
         Returns:
-            食材信息
+            相关信息
         """
         if not all([self.retrieval_module, self.generation_module]):
             raise ValueError("请先构建知识库")
 
         # 检索相关文档块，并映射到完整父文档
-        retrieved_chunks = self.retrieval_module.hybrid_search(dish_name, top_k=3)
+        retrieved_chunks = self.retrieval_module.hybrid_search(doc_title, top_k=3)
         parent_docs = self.data_module.get_parent_documents(retrieved_chunks)
 
-        # 生成食材信息
-        answer = self.generation_module.generate_basic_answer(f"{dish_name}需要什么食材？", parent_docs)
+        # 生成相关信息
+        answer = self.generation_module.generate_basic_answer(f"{doc_title}有哪些相关规定？", parent_docs)
 
         return answer
     
     def run_interactive(self):
         """运行交互式问答"""
         print("=" * 60)
-        print("🍽️  尝尝咸淡RAG系统 - 交互式问答  🍽️")
+        print("📚  校园知识库RAG系统 - 交互式问答  📚")
         print("=" * 60)
-        print("💡 解决您的选择困难症，告别'今天吃什么'的世纪难题！")
+        print("💡 方便查规章、找流程、看通知。")
         
         # 初始化系统
         self.initialize_system()
@@ -459,7 +465,7 @@ class RecipeRAGSystem:
             except Exception as e:
                 print(f"处理问题时出错: {e}")
         
-        print("\n感谢使用尝尝咸淡RAG系统！")
+        print("\n感谢使用校园知识库RAG系统！")
 
 
 
@@ -467,7 +473,7 @@ def main():
     """主函数"""
     try:
         # 创建RAG系统
-        rag_system = RecipeRAGSystem()
+        rag_system = CampusRAGSystem()
         
         # 运行交互式问答
         rag_system.run_interactive()
@@ -478,5 +484,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 

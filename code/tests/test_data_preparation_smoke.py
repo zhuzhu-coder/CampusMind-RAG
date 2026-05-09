@@ -15,5 +15,10 @@ def test_campus_documents_can_be_loaded_and_chunked():
     assert "规章制度" in stats["categories"]
     assert set(stats["file_types"]) >= {"md", "txt", "pdf"}
     assert all("doc_title" in doc.metadata for doc in documents)
+    assert all("dish_name" not in doc.metadata for doc in documents)
+    assert all("difficulty" not in doc.metadata for doc in documents)
     assert all("chunk_id" in chunk.metadata for chunk in chunks)
     assert all("doc_title" in chunk.metadata for chunk in chunks)
+    assert all("dish_name" not in chunk.metadata for chunk in chunks)
+    assert all("difficulty" not in chunk.metadata for chunk in chunks)
+    assert "difficulties" not in stats

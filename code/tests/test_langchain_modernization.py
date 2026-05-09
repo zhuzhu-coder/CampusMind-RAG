@@ -38,12 +38,12 @@ def test_build_context_truncates_long_first_document_instead_of_dropping_it(monk
 
     doc = Document(
         page_content="做法：" + "先煎后炒。" * 40,
-        metadata={"dish_name": "长菜谱", "category": "荤菜", "difficulty": "简单"},
+        metadata={"doc_title": "长文档", "doc_category": "规章制度", "department": "学生处"},
     )
 
     context = generator._build_context([doc], max_length=90)
 
-    assert "长菜谱" in context
+    assert "长文档" in context
     assert "做法" in context
     assert len(context) <= 90
 
@@ -55,9 +55,9 @@ def test_build_context_labels_parent_documents_with_citation_numbers(monkeypatch
     doc = Document(
         page_content="## 操作步骤\n先炒鸡蛋，再炒番茄。",
         metadata={
-            "dish_name": "番茄炒蛋",
-            "category": "素菜",
-            "difficulty": "简单",
+            "doc_title": "学生请假管理办法",
+            "doc_category": "规章制度",
+            "department": "学生处",
             "source": "data/cook/vegetable_dish/番茄炒蛋.md",
             "二级标题": "操作步骤",
         },
@@ -65,9 +65,24 @@ def test_build_context_labels_parent_documents_with_citation_numbers(monkeypatch
 
     context = generator._build_context([doc])
 
-    assert "[1] 菜谱: 番茄炒蛋" in context
-    assert "章节: 操作步骤" not in context
+    assert "[1] 校园文档: 学生请假管理办法" in context
+    assert "菜谱" not in context
     assert "来源: data/cook/vegetable_dish/番茄炒蛋.md" in context
+
+
+def test_build_context_does_not_fall_back_to_legacy_dish_name(monkeypatch):
+    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
+
+    doc = Document(
+        page_content="## 操作步骤\n先炒鸡蛋，再炒番茄。",
+        metadata={"source": "data/campus/regulations/学生请假管理办法.md"},
+    )
+
+    context = generator._build_context([doc])
+
+    assert "[1] 校园文档: 未知文档" in context
+    assert "菜谱" not in context
 
 
 def test_grounded_answer_rules_require_citations_and_no_hallucination(monkeypatch):
@@ -100,8 +115,8 @@ def test_append_reference_lines_adds_references_once(monkeypatch):
     doc = Document(
         page_content="## 操作步骤\n先炒鸡蛋。",
         metadata={
-            "dish_name": "番茄炒蛋",
-            "source": "data/cook/vegetable_dish/番茄炒蛋.md",
+            "doc_title": "学生请假管理办法",
+            "source": "data/campus/regulations/学生请假管理办法.md",
         },
     )
 
@@ -111,7 +126,7 @@ def test_append_reference_lines_adds_references_once(monkeypatch):
     assert with_references == (
         "番茄炒蛋需要鸡蛋和番茄。[1]\n\n"
         "参考来源:\n"
-        "[1] 番茄炒蛋 - data/cook/vegetable_dish/番茄炒蛋.md"
+        "[1] 学生请假管理办法 - data/campus/regulations/学生请假管理办法.md"
     )
     assert generator._append_reference_lines(with_references, [doc]) == with_references
 
@@ -123,8 +138,8 @@ def test_stream_with_reference_lines_adds_references_once(monkeypatch):
     doc = Document(
         page_content="## 操作步骤\n先炒鸡蛋。",
         metadata={
-            "dish_name": "番茄炒蛋",
-            "source": "data/cook/vegetable_dish/番茄炒蛋.md",
+            "doc_title": "学生请假管理办法",
+            "source": "data/campus/regulations/学生请假管理办法.md",
         },
     )
 
@@ -135,21 +150,21 @@ def test_stream_with_reference_lines_adds_references_once(monkeypatch):
     assert streamed_answer == (
         "番茄炒蛋需要鸡蛋和番茄。[1]\n\n"
         "参考来源:\n"
-        "[1] 番茄炒蛋 - data/cook/vegetable_dish/番茄炒蛋.md"
+        "[1] 学生请假管理办法 - data/campus/regulations/学生请假管理办法.md"
     )
 
     already_has_references = "".join(
         generator._stream_with_reference_lines(
             [
                 "番茄炒蛋需要鸡蛋和番茄。[1]\n\n",
-                "参考来源:\n[1] 番茄炒蛋",
+                "参考来源:\n[1] 学生请假管理办法",
             ],
             [doc],
         )
     )
 
     assert already_has_references.count("参考来源") == 1
-    assert already_has_references.endswith("[1] 番茄炒蛋")
+    assert already_has_references.endswith("[1] 学生请假管理办法")
 
 
 def test_generate_list_answer_includes_citation_numbers(monkeypatch):
@@ -160,17 +175,17 @@ def test_generate_list_answer_includes_citation_numbers(monkeypatch):
         Document(
             page_content="## 操作步骤\n先炒鸡蛋。",
             metadata={
-                "dish_name": "番茄炒蛋",
-                "source": "data/cook/vegetable_dish/番茄炒蛋.md",
+                "doc_title": "学生请假管理办法",
+                "source": "data/campus/regulations/学生请假管理办法.md",
             },
         )
     ]
 
     answer = generator.generate_list_answer("推荐一个素菜", parent_docs)
 
-    assert "番茄炒蛋 [1]" in answer
+    assert "学生请假管理办法 [1]" in answer
     assert "参考来源" in answer
-    assert "[1] 番茄炒蛋 - data/cook/vegetable_dish/番茄炒蛋.md" in answer
+    assert "[1] 学生请假管理办法 - data/campus/regulations/学生请假管理办法.md" in answer
 
 
 def test_rrf_rerank_keeps_distinct_chunks_with_same_content(monkeypatch):
@@ -302,17 +317,17 @@ def test_metadata_filtered_search_rebuilds_bm25_from_all_filtered_chunks(monkeyp
     monkeypatch.setattr(module, "BM25Retriever", FakeBM25RetrieverFactory)
 
     chunks = [
-        Document(page_content="番茄炒蛋一", metadata={"difficulty": "非常简单", "chunk_id": "a"}),
-        Document(page_content="番茄炒蛋二", metadata={"difficulty": "非常简单", "chunk_id": "b"}),
-        Document(page_content="番茄炒蛋三", metadata={"difficulty": "非常简单", "chunk_id": "c"}),
-        Document(page_content="红烧肉", metadata={"difficulty": "困难", "chunk_id": "d"}),
+        Document(page_content="学生请假管理办法一", metadata={"doc_category": "规章制度", "chunk_id": "a"}),
+        Document(page_content="学生请假管理办法二", metadata={"doc_category": "规章制度", "chunk_id": "b"}),
+        Document(page_content="学生请假管理办法三", metadata={"doc_category": "规章制度", "chunk_id": "c"}),
+        Document(page_content="校园卡补办说明", metadata={"doc_category": "校园生活", "chunk_id": "d"}),
     ]
 
     retriever = module.RetrievalOptimizationModule(FakeVectorStore(), chunks, candidate_k=2)
-    retriever.metadata_filtered_search("非常简单有哪些菜", {"difficulty": "非常简单"}, top_k=2)
+    retriever.metadata_filtered_search("规章制度有哪些", {"doc_category": "规章制度"}, top_k=2)
 
     assert captured["similarity_search"]["k"] == 6
-    assert captured["similarity_search"]["filter"] == {"difficulty": "非常简单"}
+    assert captured["similarity_search"]["filter"] == {"doc_category": "规章制度"}
     assert len(captured["factory_calls"]) == 2
     assert [doc.metadata["chunk_id"] for doc in captured["factory_calls"][1]["documents"]] == ["a", "b", "c"]
 

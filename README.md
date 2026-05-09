@@ -1,6 +1,6 @@
 # 校园知识库 RAG
 
-这是一个基于 LangChain 1.x 的校园知识库 RAG 示例项目。系统会读取校园文档，构建 FAISS 向量索引，并结合 BM25 与向量检索回答校园相关问题。
+这是一个基于 LangChain 1.x 的校园知识库 RAG 示例项目。系统会读取校园文档，构建 FAISS 向量索引，并结合 BM25 与向量检索回答校园相关问题，同时保留 grounded answers 和引用来源。
 
 ## 目录结构
 
@@ -68,9 +68,9 @@ cd E:\RAG\code
 python -m pytest tests -q -p no:cacheprovider
 ```
 
-## RAG 检索评估
+## 校园检索评估
 
-项目内置了一个轻量评估集，用于对比向量检索、BM25 和 Hybrid+RRF 的召回效果。
+项目内置了一个轻量评估集，用于对比向量检索、BM25 和 Hybrid+RRF 的召回效果。默认评估集是 `code/evals/campus_smoke_eval_set.jsonl`。
 
 ```powershell
 cd E:\RAG\code

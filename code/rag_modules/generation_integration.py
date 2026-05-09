@@ -60,14 +60,14 @@ class GenerationIntegrationModule:
         prompt = ChatPromptTemplate.from_template("""
 根据用户的问题，将其分类为以下三种类型之一：
 
-1. 'list' - 用户想要获取菜品列表或推荐，只需要菜名
-   例如：推荐几个素菜、有什么川菜、给我3个简单的菜
+1. 'list' - 用户想要获取文档列表或推荐，只需要文档标题
+   例如：有哪些学生管理规定、推荐几份期末安排、给我3个校园通知
 
-2. 'detail' - 用户想要具体的制作方法或详细信息
-   例如：宫保鸡丁怎么做、制作步骤、需要什么食材
+2. 'detail' - 用户想要具体办理方法、流程或详细信息
+   例如：学生请假超过三天怎么审批、缓考怎么申请、补办校园卡要哪些材料
 
 3. 'general' - 其他一般性问题
-   例如：什么是川菜、制作技巧、营养价值
+   例如：什么是请假管理办法、校园卡补办是什么意思、考试安排怎么看
 
 请只返回分类结果：list、detail 或 general
 
@@ -112,34 +112,34 @@ class GenerationIntegrationModule:
             重写后的查询或原查询
         """
         prompt = PromptTemplate.from_template("""
-你是一个智能查询分析助手。请分析用户的查询，判断是否需要重写以提高食谱搜索效果。
+你是一个智能查询分析助手。请分析用户的查询，判断是否需要重写以提高校园文档检索效果。
 
 原始查询: {query}
 
 分析规则：
 1. **具体明确的查询**（直接返回原查询）：
-   - 包含具体菜品名称：如"宫保鸡丁怎么做"、"红烧肉的制作方法"
-   - 明确的制作询问：如"蛋炒饭需要什么食材"、"糖醋排骨的步骤"
-   - 具体的烹饪技巧：如"如何炒菜不粘锅"、"怎样调制糖醋汁"
+   - 包含具体文档标题：如"学生请假管理办法怎么规定"、"期末考试安排在哪里看"
+   - 明确的办理询问：如"校园卡补办需要什么材料"、"缓考申请的步骤"
+   - 具体的规则问题：如"请假超过三天谁审批"、"考试证件要带什么"
 
 2. **模糊不清的查询**（需要重写）：
-   - 过于宽泛：如"做菜"、"有什么好吃的"、"推荐个菜"
-   - 缺乏具体信息：如"川菜"、"素菜"、"简单的"
-   - 口语化表达：如"想吃点什么"、"有饮品推荐吗"
+   - 过于宽泛：如"请假"、"考试"、"校园卡"
+   - 缺乏具体信息：如"管理办法"、"通知"、"流程"
+   - 口语化表达：如"怎么办"、"有什么要求"、"怎么弄"
 
 重写原则：
 - 保持原意不变
-- 增加相关烹饪术语
-- 优先推荐简单易做的
+- 增加相关校园文档检索术语
+- 优先补足问题中缺失的对象、流程或条件
 - 保持简洁性
 
 示例：
-- "做菜" → "简单易做的家常菜谱"
-- "有饮品推荐吗" → "简单饮品制作方法"
-- "推荐个菜" → "简单家常菜推荐"
-- "川菜" → "经典川菜菜谱"
-- "宫保鸡丁怎么做" → "宫保鸡丁怎么做"（保持原查询）
-- "红烧肉需要什么食材" → "红烧肉需要什么食材"（保持原查询）
+- "请假" → "学生请假管理办法"
+- "有通知吗" → "校园通知公告"
+- "推荐个文件" → "校园文档推荐"
+- "校园卡" → "校园卡补办说明"
+- "学生请假超过三天需要谁审批" → "学生请假超过三天需要谁审批"（保持原查询）
+- "缓考申请的步骤" → "缓考申请的步骤"（保持原查询）
 
 请输出最终查询（如果不需要重写就返回原查询）:""")
 
@@ -170,7 +170,7 @@ class GenerationIntegrationModule:
             格式化的上下文字符串
         """
         if not parent_docs:
-            return "暂无相关食谱信息。"
+            return "暂无相关校园文档信息。"
 
         separator = "\n" + "=" * 50 + "\n"
 
@@ -216,14 +216,16 @@ class GenerationIntegrationModule:
             格式化的文档字符串
         """
         metadata = parent_doc.metadata or {}
-        dish_name = metadata.get("dish_name", "未知菜品")
-        metadata_info = f"[{source_id}] 菜谱: {dish_name}"
+        doc_title = GenerationIntegrationModule._get_doc_title(metadata)
+        metadata_info = f"[{source_id}] 校园文档: {doc_title}"
 
         if include_optional_metadata:
-            if "category" in metadata:
-                metadata_info += f" | 分类: {metadata['category']}"
-            if "difficulty" in metadata:
-                metadata_info += f" | 难度: {metadata['difficulty']}"
+            if metadata.get("doc_category"):
+                metadata_info += f" | 分类: {metadata['doc_category']}"
+            if metadata.get("department"):
+                metadata_info += f" | 部门: {metadata['department']}"
+            if metadata.get("file_type"):
+                metadata_info += f" | 类型: {metadata['file_type']}"
         if metadata.get("source"):
             metadata_info += f"\n来源: {metadata['source']}"
 
@@ -234,10 +236,10 @@ class GenerationIntegrationModule:
         """生成回答时使用的检索约束和引用规则。"""
         return """
 回答规则：
-1. 只能基于“相关食谱信息”回答，不要使用未检索到的外部知识。
-2. 不要编造食材、用量、步骤、时间、功效或来源。
-3. 如果相关食谱信息不足以回答问题，明确说明“当前资料不足”，不要猜测。
-4. 每个关键食材、步骤、技巧或结论后面必须标注来源编号，例如 [1]。
+1. 只能基于“相关校园文档信息”回答，不要使用未检索到的外部知识。
+2. 不要编造制度、流程、日期、地点、材料或来源。
+3. 如果相关校园文档信息不足以回答问题，明确说明“当前资料不足”，不要猜测。
+4. 每个关键要求、步骤、提示或结论后面必须标注来源编号，例如 [1]。
 5. 参考来源列表会由系统自动追加，不要自行编写参考来源小节。
 """
 
@@ -251,17 +253,17 @@ class GenerationIntegrationModule:
             参考来源行列表
         """
         reference_lines = []
-        seen_dishes = set()
+        seen_titles = set()
         for source_id, parent_doc in enumerate(parent_docs, 1):
             metadata = parent_doc.metadata or {}
-            dish_name = metadata.get("dish_name", "未知菜品")
-            if dish_name in seen_dishes:
+            doc_title = GenerationIntegrationModule._get_doc_title(metadata)
+            if doc_title in seen_titles:
                 continue
-            line = f"[{source_id}] {dish_name}"
+            line = f"[{source_id}] {doc_title}"
             if metadata.get("source"):
                 line += f" - {metadata['source']}"
             reference_lines.append(line)
-            seen_dishes.add(dish_name)
+            seen_titles.add(doc_title)
         return reference_lines
 
     def _append_reference_lines(self, answer: str, parent_docs: List[Document]) -> str:
@@ -318,29 +320,29 @@ class GenerationIntegrationModule:
             列表式回答
         """
         if not parent_docs:
-            return "抱歉，没有找到相关的菜品信息。"
+            return "抱歉，没有找到相关的校园文档。"
 
-        # 提取菜品名称和来源编号
-        dish_refs = []
-        seen_dish_names = set()
+        # 提取文档标题和来源编号
+        doc_refs = []
+        seen_doc_titles = set()
         for source_id, parent_doc in enumerate(parent_docs, 1):
-            dish_name = parent_doc.metadata.get('dish_name', '未知菜品')
-            if dish_name not in seen_dish_names:
-                dish_refs.append((dish_name, source_id))
-                seen_dish_names.add(dish_name)
+            doc_title = self._get_doc_title(parent_doc.metadata or {})
+            if doc_title not in seen_doc_titles:
+                doc_refs.append((doc_title, source_id))
+                seen_doc_titles.add(doc_title)
 
         # 构建简洁的列表回答
-        if len(dish_refs) == 1:
-            answer = f"为您推荐：{dish_refs[0][0]} [{dish_refs[0][1]}]"
-        elif len(dish_refs) <= 3:
-            answer = "为您推荐以下菜品：\n" + "\n".join(
-                [f"{i+1}. {name} [{source_id}]" for i, (name, source_id) in enumerate(dish_refs)]
+        if len(doc_refs) == 1:
+            answer = f"为您推荐：{doc_refs[0][0]} [{doc_refs[0][1]}]"
+        elif len(doc_refs) <= 3:
+            answer = "为您推荐以下文档：\n" + "\n".join(
+                [f"{i+1}. {name} [{source_id}]" for i, (name, source_id) in enumerate(doc_refs)]
             )
         else:
-            answer = "为您推荐以下菜品：\n" + "\n".join(
-                [f"{i+1}. {name} [{source_id}]" for i, (name, source_id) in enumerate(dish_refs[:3])]
+            answer = "为您推荐以下文档：\n" + "\n".join(
+                [f"{i+1}. {name} [{source_id}]" for i, (name, source_id) in enumerate(doc_refs[:3])]
             )
-            answer += f"\n\n还有其他 {len(dish_refs)-3} 道菜品可供选择。"
+            answer += f"\n\n还有其他 {len(doc_refs)-3} 份文档可供选择。"
 
         reference_lines = self._build_reference_lines(parent_docs)
         if reference_lines:
@@ -359,11 +361,11 @@ class GenerationIntegrationModule:
         context = self._build_context(parent_docs)
 
         prompt = ChatPromptTemplate.from_template("""
-你是一位专业的烹饪助手。请根据以下食谱信息回答用户的问题。
+你是一位专业的校园知识库助手。请根据以下校园文档信息回答用户的问题。
 
 用户问题: {question}
 
-相关食谱信息:
+相关校园文档信息:
 {context}
 
 """ + self._grounded_answer_rules() + """
@@ -395,34 +397,34 @@ class GenerationIntegrationModule:
         context = self._build_context(parent_docs)
 
         prompt = ChatPromptTemplate.from_template("""
-你是一位专业的烹饪导师。请根据食谱信息，为用户提供详细的分步骤指导。
+你是一位专业的校园事务助手。请根据校园文档信息，为用户提供详细的分步骤指导。
 
 用户问题: {question}
 
-相关食谱信息:
+相关校园文档信息:
 {context}
 
 """ + self._grounded_answer_rules() + """
 
 请灵活组织回答，建议包含以下部分（可根据实际内容调整）：
 
-## 🥘 菜品介绍
-[简要介绍菜品特点和难度]
+## 文档概览
+[简要介绍文档主题和适用范围]
 
-## 🛒 所需食材
-[列出主要食材和用量]
+## 关键要求
+[列出主要条件、要求或材料]
 
-## 👨‍🍳 制作步骤
-[详细的分步骤说明，每步包含具体操作和大概所需时间]
+## 办理步骤
+[详细的分步骤说明，每步包含具体操作和注意事项]
 
-## 💡 制作技巧
-[仅在有实用技巧时包含。优先使用原文中的实用技巧，如果原文的"附加内容"与烹饪无关或为空，可以基于制作步骤总结关键要点，或者完全省略此部分]
+## 注意事项
+[仅在有实用提醒时包含。优先使用原文中的要求与提示，必要时可以基于正文总结关键要点，或者完全省略此部分]
 
 注意：
 - 根据实际内容灵活调整结构
 - 不要强行填充无关内容或重复制作步骤中的信息
 - 重点突出实用性和可操作性
-- 如果没有额外的技巧要分享，可以省略制作技巧部分
+- 如果没有额外的注意事项要分享，可以省略该部分
 
 回答:""")
 
@@ -449,11 +451,11 @@ class GenerationIntegrationModule:
         context = self._build_context(parent_docs)
 
         prompt = ChatPromptTemplate.from_template("""
-你是一位专业的烹饪助手。请根据以下食谱信息回答用户的问题。
+你是一位专业的校园知识库助手。请根据以下校园文档信息回答用户的问题。
 
 用户问题: {question}
 
-相关食谱信息:
+相关校园文档信息:
 {context}
 
 """ + self._grounded_answer_rules() + """
@@ -471,6 +473,15 @@ class GenerationIntegrationModule:
 
         yield from self._stream_with_reference_lines(chain.stream(query), parent_docs)
 
+    @staticmethod
+    def _get_doc_title(metadata: dict) -> str:
+        """从元数据中提取稳定的文档标题。"""
+        return (
+            metadata.get("doc_title")
+            or metadata.get("source_name")
+            or "未知文档"
+        )
+
     def generate_step_by_step_answer_stream(self, query: str, parent_docs: List[Document]):
         """
         生成详细步骤回答 - 流式输出
@@ -483,28 +494,28 @@ class GenerationIntegrationModule:
         context = self._build_context(parent_docs)
 
         prompt = ChatPromptTemplate.from_template("""
-你是一位专业的烹饪导师。请根据食谱信息，为用户提供详细的分步骤指导。
+你是一位专业的校园事务助手。请根据校园文档信息，为用户提供详细的分步骤指导。
 
 用户问题: {question}
 
-相关食谱信息:
+相关校园文档信息:
 {context}
 
 """ + self._grounded_answer_rules() + """
 
 请灵活组织回答，建议包含以下部分（可根据实际内容调整）：
 
-## 🥘 菜品介绍
-[简要介绍菜品特点和难度]
+## 文档概览
+[简要介绍文档主题和适用范围]
 
-## 🛒 所需食材
-[列出主要食材和用量]
+## 关键要求
+[列出主要条件、要求或材料]
 
-## 👨‍🍳 制作步骤
-[详细的分步骤说明，每步包含具体操作和大概所需时间]
+## 办理步骤
+[详细的分步骤说明，每步包含具体操作和注意事项]
 
-## 💡 制作技巧
-[仅在有实用技巧时包含。如果原文的"附加内容"与烹饪无关或为空，可以基于制作步骤总结关键要点，或者完全省略此部分]
+## 注意事项
+[仅在有实用提醒时包含。如果原文内容与办理无关或为空，可以基于正文总结关键要点，或者完全省略此部分]
 
 注意：
 - 根据实际内容灵活调整结构

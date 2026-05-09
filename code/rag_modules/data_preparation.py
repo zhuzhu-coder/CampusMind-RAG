@@ -20,7 +20,6 @@ class DataPreparationModule:
     """数据准备模块 - 负责校园文档加载、清洗和分块"""
 
     CATEGORY_LABELS = ["规章制度", "教务教学", "校园生活", "通知公告", "其他"]
-    DIFFICULTY_LABELS: List[str] = []
 
     def __init__(self, data_path: str):
         """
@@ -58,7 +57,7 @@ class DataPreparationModule:
         return documents
 
     def _normalize_parent_metadata(self, parent_doc: Document) -> None:
-        """补齐校园文档的标准元数据，并保留少量旧字段别名。"""
+        """补齐校园文档的标准元数据。"""
         metadata = parent_doc.metadata or {}
         source = metadata.get("source", "")
         source_path = Path(source) if source else Path(self.data_path)
@@ -82,9 +81,6 @@ class DataPreparationModule:
                 "doc_id": metadata.get("doc_id") or parent_id,
                 "section": metadata.get("section") or doc_title,
                 "source": source,
-                "category": doc_category,
-                "dish_name": doc_title,
-                "difficulty": "未知",
                 "doc_type": "parent",
             }
         )
@@ -94,11 +90,6 @@ class DataPreparationModule:
     def get_supported_categories(cls) -> List[str]:
         """对外提供支持的分类标签列表"""
         return list(cls.CATEGORY_LABELS)
-
-    @classmethod
-    def get_supported_difficulties(cls) -> List[str]:
-        """对外提供支持的难度标签列表"""
-        return list(cls.DIFFICULTY_LABELS)
 
     def chunk_documents(self) -> List[Document]:
         """
@@ -263,9 +254,6 @@ class DataPreparationModule:
             "source": parent_metadata.get("source", ""),
             "relative_path": parent_metadata.get("relative_path", ""),
             "page": parent_metadata.get("page"),
-            "category": parent_metadata.get("doc_category", "其他"),
-            "dish_name": parent_metadata.get("doc_title", "未知文档"),
-            "difficulty": "未知",
         }
 
         return Document(page_content=cleaned_content, metadata=metadata)
@@ -362,7 +350,7 @@ class DataPreparationModule:
 
         parent_info = []
         for parent_doc in parent_docs:
-            doc_title = parent_doc.metadata.get("doc_title") or parent_doc.metadata.get("dish_name", "未知文档")
+            doc_title = parent_doc.metadata.get("doc_title") or parent_doc.metadata.get("source_name", "未知文档")
             parent_id = parent_doc.metadata.get("parent_id")
             rank_info = parent_rank_info.get(parent_id, {})
             relevance_count = rank_info.get("hit_count", 0)
@@ -389,14 +377,12 @@ class DataPreparationModule:
                 "categories": {},
                 "departments": {},
                 "file_types": {},
-                "difficulties": {},
                 "avg_chunk_size": 0,
             }
 
         categories: Dict[str, int] = {}
         departments: Dict[str, int] = {}
         file_types: Dict[str, int] = {}
-        difficulties: Dict[str, int] = {}
 
         for parent_doc in self.documents:
             metadata = parent_doc.metadata or {}
@@ -410,9 +396,6 @@ class DataPreparationModule:
             file_type = metadata.get("file_type") or "unknown"
             file_types[file_type] = file_types.get(file_type, 0) + 1
 
-            difficulty = metadata.get("difficulty", "未知")
-            difficulties[difficulty] = difficulties.get(difficulty, 0) + 1
-
         avg_chunk_size = 0
         if self.chunks:
             avg_chunk_size = sum(chunk.metadata.get("chunk_size", 0) for chunk in self.chunks) / len(self.chunks)
@@ -423,7 +406,6 @@ class DataPreparationModule:
             "categories": categories,
             "departments": departments,
             "file_types": file_types,
-            "difficulties": difficulties,
             "avg_chunk_size": avg_chunk_size,
         }
 
@@ -449,9 +431,6 @@ class DataPreparationModule:
                     "file_type": metadata.get("file_type"),
                     "section": metadata.get("section"),
                     "page": metadata.get("page"),
-                    "category": metadata.get("category"),
-                    "dish_name": metadata.get("dish_name"),
-                    "difficulty": metadata.get("difficulty"),
                     "content_length": len(parent_doc.page_content),
                 }
             )
