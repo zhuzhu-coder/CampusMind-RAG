@@ -54,11 +54,6 @@ class RAGConfig:
         self.max_tokens = int(self.max_tokens)
     
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> 'RAGConfig': # 当前类， 字典
-        """从字典创建配置对象"""
-        return cls(**config_dict) # 字典解包
-
-    @classmethod
     def from_env(cls) -> 'RAGConfig': # 当前类  
         """从环境变量创建配置对象"""
         env_mapping = {

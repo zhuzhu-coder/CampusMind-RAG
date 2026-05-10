@@ -4,13 +4,8 @@
 
 import logging
 import hashlib
-import importlib
-import contextlib
-import sys
-import types
 import warnings
 from functools import lru_cache
-from pathlib import Path
 from typing import List, Dict, Any
 
 from langchain_community.vectorstores import FAISS
@@ -19,42 +14,6 @@ from langchain_core.documents import Document
 
 # 创建当前模块的日志记录器
 logger = logging.getLogger(__name__)
-
-
-def _build_pkg_resources_shim() -> types.ModuleType:
-    """
-    构建一个极小的 pkg_resources 兼容层，绕开 Windows 上受损的 site-packages 扫描。
-    """
-    shim = types.ModuleType("pkg_resources")
-
-    def resource_stream(package_or_requirement, resource_name):
-        module = sys.modules.get(package_or_requirement)
-        if module is None:
-            module = importlib.import_module(package_or_requirement)
-        module_file = getattr(module, "__file__", None)
-        if not module_file:
-            raise ValueError(f"无法解析资源模块: {package_or_requirement}")
-        resource_path = Path(module_file).resolve().parent.joinpath(*Path(resource_name).parts)
-        return open(resource_path, "rb")
-
-    shim.resource_stream = resource_stream
-    return shim
-
-
-@contextlib.contextmanager
-def _temporary_pkg_resources_shim():
-    """
-    在导入 jieba 时临时注入 pkg_resources 兼容层。
-    """
-    original_pkg_resources = sys.modules.get("pkg_resources")
-    sys.modules["pkg_resources"] = _build_pkg_resources_shim()
-    try:
-        yield
-    finally:
-        if original_pkg_resources is None:
-            sys.modules.pop("pkg_resources", None)
-        else:
-            sys.modules["pkg_resources"] = original_pkg_resources
 
 
 def tokenize_chinese_text(text: str) -> List[str]:
@@ -82,8 +41,7 @@ def _get_jieba_cut_for_search():
         # 导入 jieba 时临时忽略 warning
         with warnings.catch_warnings(): 
             warnings.simplefilter("ignore")
-            with _temporary_pkg_resources_shim():
-                import jieba
+            import jieba
         # 设置 jieba 日志级别为 WARNING
         jieba.setLogLevel(logging.WARNING)
         return jieba.cut_for_search
@@ -189,9 +147,11 @@ class RetrievalOptimizationModule:
                 filter=faiss_filters, # 应用元数据过滤条件
             )
         except TypeError:
+            # 如果向量检索器不支持元数据过滤
+            vector_candidates = self.vectorstore.similarity_search(query, k=candidate_k)
             vector_chunks = [
-                # 先使用向量检索器检索
-                chunk for chunk in self.vector_retriever.invoke(query)
+                # 先使用扩大的候选集检索
+                chunk for chunk in vector_candidates
                 # 再根据元数据过滤
                 if self._matches_filters(chunk, filters)
             ]
@@ -253,9 +213,12 @@ class RetrievalOptimizationModule:
         for chunk_key, final_score in sorted_chunks:
             if chunk_key in chunk_objects:
                 chunk = chunk_objects[chunk_key]
-                # 将RRF分数添加到文档块元数据中
-                chunk.metadata['rrf_score'] = final_score
-                reranked_chunks.append(chunk)
+                # 复制文档块，避免把临时RRF分数写回原始Document
+                scored_chunk = chunk.model_copy(
+                    deep=True, # 深拷贝
+                    update={"metadata": {**(chunk.metadata or {}), "rrf_score": final_score}},
+                )
+                reranked_chunks.append(scored_chunk)
                 logger.debug(f"最终排序 - 文档块: {chunk.page_content[:50]}... 最终RRF分数: {final_score:.4f}")
 
         logger.info(f"RRF重排完成: 向量检索{len(vector_chunks)}个文档块, BM25检索{len(bm25_chunks)}个文档块, 合并后{len(reranked_chunks)}个文档块")

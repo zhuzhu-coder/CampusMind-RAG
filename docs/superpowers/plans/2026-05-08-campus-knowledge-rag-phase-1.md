@@ -287,7 +287,7 @@ def load_documents(self) -> list[Document]:
 - `doc_id`
 - `chunk_id`
 
-`get_statistics()` 也要从 `category` / `difficulty` 改成校园语料统计。
+`get_statistics()` 也要从 `category` / `difficulty` 改成校园知识库统计。
 
 - [ ] **Step 4: 再跑测试确认通过**
 

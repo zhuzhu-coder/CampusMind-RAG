@@ -1,9 +1,11 @@
 import os
+import builtins
 
 from config import RAGConfig
 from langchain_core.documents import Document
 from main import CampusRAGSystem
 from rag_modules import RAGResponse
+from rag_modules.document_ingestion import SUPPORTED_SUFFIXES
 
 
 class FakeVectorRetriever:
@@ -42,8 +44,13 @@ class FakeIndexConstructionModule:
         self.received_manifest = None
 
     def build_manifest(self, data_path, chunks=None):
+        source_count = sum(
+            1
+            for path in __import__("pathlib").Path(data_path).rglob("*")
+            if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES
+        )
         return {
-            "source_document_count": len(list(__import__("pathlib").Path(data_path).rglob("*.md"))),
+            "source_document_count": source_count,
             "chunk_count": len(chunks) if chunks is not None else None,
         }
 
@@ -101,7 +108,6 @@ def test_campus_rag_system_runs_end_to_end_without_network(monkeypatch):
     assert system.index_module.saved_manifest["chunk_count"] > 0
     assert system.index_module.received_manifest["source_document_count"] >= 1
     assert system.retrieval_module.candidate_k == 4
-    assert not hasattr(main_module, "RecipeRAGSystem")
 
 
 def test_ask_question_can_return_structured_sources(monkeypatch):
@@ -176,7 +182,7 @@ def test_aligned_sources_keep_all_chunks_with_parent_doc_source_ids():
                 "doc_category": "规章制度",
                 "department": "学生处",
                 "file_type": "md",
-                "source": "data/campus/regulations/学生请假管理办法.md",
+                "source": "data/campus/regulations/student_affairs/学生请假管理办法.md",
             },
         ),
         Document(
@@ -187,7 +193,7 @@ def test_aligned_sources_keep_all_chunks_with_parent_doc_source_ids():
                 "doc_category": "教务教学",
                 "department": "教务处",
                 "file_type": "txt",
-                "source": "data/campus/teaching/期末考试安排.txt",
+                "source": "data/campus/teaching/exams/期末考试安排.txt",
             },
         ),
     ]
@@ -235,3 +241,40 @@ def test_campus_rag_system_default_config_reads_current_environment(monkeypatch)
 
     assert system.config.top_k == 7
     assert system.config.retrieval_candidate_k == 14
+
+
+def test_interactive_empty_question_prompts_again(monkeypatch, capsys):
+    system = CampusRAGSystem()
+    monkeypatch.setattr(system, "initialize_system", lambda: None)
+    monkeypatch.setattr(system, "build_knowledge_base", lambda: None)
+
+    answers = iter(["", "退出"])
+    prompts = []
+
+    def fake_input(prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr(builtins, "input", fake_input)
+
+    system.run_interactive()
+
+    output = capsys.readouterr().out
+    assert len(prompts) == 2
+    assert "请输入问题内容" in output
+
+
+def test_interactive_eof_exits_with_clear_message(monkeypatch, capsys):
+    system = CampusRAGSystem()
+    monkeypatch.setattr(system, "initialize_system", lambda: None)
+    monkeypatch.setattr(system, "build_knowledge_base", lambda: None)
+
+    def fake_input(prompt):
+        raise EOFError
+
+    monkeypatch.setattr(builtins, "input", fake_input)
+
+    system.run_interactive()
+
+    output = capsys.readouterr().out
+    assert "输入流已结束" in output

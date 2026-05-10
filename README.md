@@ -50,8 +50,8 @@ RAG_MAX_TOKENS=2048
 把校园文档放到 `data/campus` 目录，建议按分类子目录组织，例如：
 
 ```text
-data/campus/regulations/学生请假管理办法.md
-data/campus/teaching/期末考试安排.txt
+data/campus/regulations/student_affairs/学生请假管理办法.md
+data/campus/teaching/exams/期末考试安排.txt
 ```
 
 ## 运行

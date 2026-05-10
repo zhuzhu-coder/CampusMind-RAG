@@ -23,7 +23,7 @@ def test_relative_paths_are_resolved_from_project_root():
 
 
 def test_absolute_paths_are_preserved():
-    data_path = PROJECT_ROOT / "absolute-recipes"
+    data_path = PROJECT_ROOT / "absolute-campus-data"
     index_path = PROJECT_ROOT / "absolute-index"
 
     config = RAGConfig(

@@ -1,0 +1,231 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [7 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type0 /BaseFont /SimHei /Encoding /Identity-H
+   /DescendantFonts [4 0 R] /ToUnicode 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /CIDFontType2 /BaseFont /SimHei
+   /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>
+   /FontDescriptor 6 0 R /W [1 [1000]] /CIDToGIDMap /Identity >>
+endobj
+5 0 obj
+<< /Length 1866 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0001> <FFFF>
+endcodespacerange
+100 beginbfchar
+<0001> <7F13>
+<0002> <8003>
+<0003> <4E0E>
+<0004> <8865>
+<0005> <529E>
+<0006> <7406>
+<0007> <8BF4>
+<0008> <660E>
+<0009> <4E00>
+<000A> <3001>
+<000B> <9002>
+<000C> <7528>
+<000D> <8303>
+<000E> <56F4>
+<000F> <56E0>
+<0010> <75BE>
+<0011> <75C5>
+<0012> <7A81>
+<0013> <53D1>
+<0014> <4E8B>
+<0015> <4EF6>
+<0016> <6216>
+<0017> <5B66>
+<0018> <6821>
+<0019> <8BA4>
+<001A> <53EF>
+<001B> <7684>
+<001C> <7279>
+<001D> <6B8A>
+<001E> <60C5>
+<001F> <51B5>
+<0020> <65E0>
+<0021> <6CD5>
+<0022> <53C2>
+<0023> <52A0>
+<0024> <8BD5>
+<0025> <FF0C>
+<0026> <6309>
+<0027> <89C4>
+<0028> <5B9A>
+<0029> <7533>
+<002A> <8BF7>
+<002B> <3002>
+<002C> <4E8C>
+<002D> <6D41>
+<002E> <7A0B>
+<002F> <5148>
+<0030> <5728>
+<0031> <6559>
+<0032> <52A1>
+<0033> <7CFB>
+<0034> <7EDF>
+<0035> <63D0>
+<0036> <4EA4>
+<0037> <518D>
+<0038> <5145>
+<0039> <8BC1>
+<003A> <6750>
+<003B> <6599>
+<003C> <5BA1>
+<003D> <6838>
+<003E> <901A>
+<003F> <8FC7>
+<0040> <540E>
+<0041> <9662>
+<0042> <5B89>
+<0043> <6392>
+<0044> <7EED>
+<0045> <4E09>
+<0046> <5730>
+<0047> <70B9>
+<0048> <548C>
+<0049> <65F6>
+<004A> <95F4>
+<004B> <7531>
+<004C> <90E8>
+<004D> <95E8>
+<004E> <77E5>
+<004F> <751F>
+<0050> <987B>
+<0051> <5173>
+<0052> <6CE8>
+<0053> <516C>
+<0054> <544A>
+<0055> <56DB>
+<0056> <610F>
+<0057> <9879>
+<0058> <53EA>
+<0059> <5FAE>
+<005A> <4FE1>
+<005B> <7535>
+<005C> <8BDD>
+<005D> <800C>
+<005E> <672A>
+<005F> <6B63>
+<0060> <5F0F>
+<0061> <4E0D>
+<0062> <89C6>
+<0063> <4E3A>
+<0064> <5B8C>
+endbfchar
+8 beginbfchar
+<0065> <6210>
+<0066> <5904>
+<0067> <0032>
+<0068> <0030>
+<0069> <0036>
+<006A> <5E74>
+<006B> <0035>
+<006C> <6708>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+endstream
+endobj
+6 0 obj
+<< /Type /FontDescriptor /FontName /SimHei /Flags 4 /FontBBox [0 -200 1000 900]
+   /Ascent 880 /Descent -120 /CapHeight 700 /ItalicAngle 0 /StemV 80 >>
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]
+   /Resources << /Font << /F1 3 0 R >> >>
+   /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 1136 >>
+stream
+BT
+/F1 16 Tf
+1 0 0 1 225 790 Tm
+<000100020003000400020005000600070008> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 732 Tm
+<0009000A000B000C000D000E> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 714 Tm
+<000F00100011000A00120013001400150016001700180019001A001B001C001D001E001F002000210022002300020024001B0025001A0026002700280029002A00010002002B> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 678 Tm
+<002C000A00050006002D002E> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 660 Tm
+<002F00300031003200330034003500360029002A002500370004003800390008003A003B0025003C003D003E003F004000260017004100420043002200230040004400020024002B> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 624 Tm
+<0045000A0004000200070008> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 606 Tm
+<0004000200420043000A000200240046004700480049004A004B00310032004C004D00340009003E004E00250017004F0050002600490051005200530054002B> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 570 Tm
+<0055000A0052005600140057> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 552 Tm
+<0058003E003F0059005A0016005B005C00070008005D005E00350036005F00600029002A001B00250061006200630064006500050006002B> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 498 Tm
+<003100320066> Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 60 480 Tm
+<0067006800670069006A006B006C> Tj
+ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000249 00000 n 
+0000000462 00000 n 
+0000002380 00000 n 
+0000002547 00000 n 
+0000002679 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+3867
+%%EOF

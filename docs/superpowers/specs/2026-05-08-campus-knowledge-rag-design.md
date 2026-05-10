@@ -29,7 +29,7 @@
 
 ## 目标数据目录
 
-将食谱语料替换为校园语料：
+将食谱语料替换为校园知识库：
 
 ```text
 data/campus/
@@ -206,7 +206,7 @@ python -m pytest tests -q -p no:cacheprovider
 
 额外的人工检查：
 
-- 用新的校园语料跑一次 CLI
+- 用新的校园知识库跑一次 CLI
 - 看一个样例回答，确认引用来源已经指向新的元数据
 - 确认 `README.md` 描述的是 `data/campus`，而不是 `data/cook`
 - 确认旧的食谱语料和食谱评估文件不再是项目默认入口

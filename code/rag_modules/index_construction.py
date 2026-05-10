@@ -14,6 +14,9 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
+from .chunking_config import CHUNKING_CONFIG
+from .document_ingestion import SUPPORTED_SUFFIXES
+
 # 创建当前模块的日志记录器
 logger = logging.getLogger(__name__)
 
@@ -25,12 +28,8 @@ MANIFEST_SCHEMA_VERSION = 1
 INDEX_TYPE = "FAISS"
 # embedding 向量维度
 EMBEDDING_DIMENSIONS = 1024
-# 分块配置
-CHUNKING_CONFIG = {
-    "splitter": "MarkdownHeaderTextSplitter", # 分块器类型
-    "strip_headers": False, # 是否移除标题
-    "headers": ["#", "##", "###"], # 标题级别
-}
+# embedding 请求超时时间，避免网络异常时长时间挂起
+EMBEDDING_TIMEOUT_SECONDS = 30
 # manifest 对比键
 MANIFEST_COMPARE_KEYS = [
     "schema_version", # manifest 结构版本
@@ -53,11 +52,17 @@ class IndexConstructionModule:
             model_name: 嵌入模型名称
             index_save_path: 索引保存路径
         """
+        # 初始化模型名称
         self.model_name = model_name
+        # 初始化索引保存路径
         self.index_save_path = index_save_path
+        # 初始化向量维度
         self.embedding_dimensions = EMBEDDING_DIMENSIONS
+        # 初始化嵌入模型
         self.embeddings = None
+        # 初始化向量数据库
         self.vectorstore = None
+        # 初始化嵌入模型客户端
         self.setup_embeddings()
     
     def setup_embeddings(self):
@@ -77,6 +82,7 @@ class IndexConstructionModule:
             ),
             dimensions=self.embedding_dimensions, # 向量维度
             chunk_size=10, # 一次请求处理的文档块数量
+            timeout=EMBEDDING_TIMEOUT_SECONDS, # 请求超时时间
             check_embedding_ctx_length=False, # 不检查向量上下文长度
         )
         logger.info("嵌入模型初始化完成")
@@ -93,15 +99,24 @@ class IndexConstructionModule:
         # 收集源文件记录
         source_records = self._collect_source_records(data_path)
         return {
+            # manifest 结构版本
             "schema_version": MANIFEST_SCHEMA_VERSION,
+            # 索引类型
             "index_type": INDEX_TYPE,
+            # 嵌入模型名称
             "embedding_model": self.model_name,
+            # 向量维度
             "embedding_dimensions": self.embedding_dimensions,
+            # 分块配置
             "chunking": CHUNKING_CONFIG,
-            "source_fingerprint": self._fingerprint_source_records(source_records), # 数据源指纹
-            "source_document_count": len(source_records), # 源文件文档数量
+            # 源文件指纹
+            "source_fingerprint": self._fingerprint_source_records(source_records),
+            # 源文件文档数量
+            "source_document_count": len(source_records),
+            # 分块数量
             "chunk_count": len(chunks) if chunks is not None else None,
-            "created_at": datetime.now(timezone.utc).isoformat(), # 创建时间
+            # 创建时间
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def load_manifest(self) -> Optional[Dict[str, Any]]:
@@ -161,19 +176,9 @@ class IndexConstructionModule:
 
         return True
 
-    def _calculate_source_fingerprint(self, data_path: str) -> str:
-        """
-        计算源 Markdown 文件指纹，文件路径或内容变化都会改变该指纹
-        Args:
-            data_path: 校园文档数据目录
-        Returns:
-            sha256 指纹字符串
-        """
-        return self._fingerprint_source_records(self._collect_source_records(data_path))
-
     def _collect_source_records(self, data_path: str) -> List[Dict[str, str]]:
         """
-        收集源 Markdown 文件的稳定路径和内容哈希
+        收集源文档文件的稳定路径和内容哈希
         Args:
             data_path: 校园文档数据目录
         Returns:
@@ -181,9 +186,14 @@ class IndexConstructionModule:
         """
         data_root = Path(data_path).resolve()
         records = []
-        # 递归查找 data_root 下的所有 Markdown 文件，再按照文件的绝对路径字符串（统一 Unix 格式）进行字典序排序
-        for md_file in sorted(data_root.rglob("*.md"), key=lambda path: path.resolve().as_posix()):
-            file_path = md_file.resolve()
+        # 递归查找 data_root 下的所有支持文件，再按照文件的绝对路径字符串（统一 Unix 格式）进行字典序排序
+        for source_file in sorted(data_root.rglob("*"), key=lambda path: path.resolve().as_posix()):
+            if not source_file.is_file():
+                continue
+            if source_file.suffix.lower() not in SUPPORTED_SUFFIXES:
+                continue
+
+            file_path = source_file.resolve()
             # 尝试获取相对路径，如果失败则使用绝对路径
             try:
                 relative_path = file_path.relative_to(data_root).as_posix()

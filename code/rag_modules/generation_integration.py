@@ -26,13 +26,18 @@ class GenerationIntegrationModule:
             temperature: 生成温度
             max_tokens: 最大token数
         """
+        # 初始化模型名称
         self.model_name = model_name
+        # 初始化生成温度
         self.temperature = temperature
+        # 初始化最大token数
         self.max_tokens = max_tokens
+        # 初始化LLM模型
         self.llm = None
         self.setup_llm()
     
     def setup_llm(self):
+        """初始化LLM模型"""
         api_key = os.getenv("DASHSCOPE_API_KEY")
         if not api_key:
             raise ValueError("请设置 DASHSCOPE_API_KEY 环境变量")
@@ -321,8 +326,7 @@ class GenerationIntegrationModule:
         """
         if not parent_docs:
             return "抱歉，没有找到相关的校园文档。"
-
-        # 提取文档标题和来源编号
+        # 构造文档引用列表
         doc_refs = []
         seen_doc_titles = set()
         for source_id, parent_doc in enumerate(parent_docs, 1):
@@ -343,7 +347,7 @@ class GenerationIntegrationModule:
                 [f"{i+1}. {name} [{source_id}]" for i, (name, source_id) in enumerate(doc_refs[:3])]
             )
             answer += f"\n\n还有其他 {len(doc_refs)-3} 份文档可供选择。"
-
+        # 追加参考来源
         reference_lines = self._build_reference_lines(parent_docs)
         if reference_lines:
             answer += "\n\n参考来源:\n" + "\n".join(reference_lines)
@@ -475,7 +479,7 @@ class GenerationIntegrationModule:
 
     @staticmethod
     def _get_doc_title(metadata: dict) -> str:
-        """从元数据中提取稳定的文档标题。"""
+        """从元数据中提取稳定的文档标题"""
         return (
             metadata.get("doc_title")
             or metadata.get("source_name")

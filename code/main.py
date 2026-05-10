@@ -58,12 +58,12 @@ class CampusRAGSystem:
         # 回答生成模块
         self.generation_module = None
 
-        # 检查数据路径是否存在；如果环境变量还指向旧路径，自动回退到校园语料目录
+        # 检查数据路径是否存在；如果环境变量还指向旧路径，自动回退到校园知识库目录
         data_path = Path(self.config.data_path)
         if not data_path.exists():
             campus_data_path = PROJECT_ROOT / "data" / "campus"
             if campus_data_path.exists():
-                logger.warning("数据路径不存在，已回退到校园语料: %s -> %s", data_path, campus_data_path)
+                logger.warning("数据路径不存在，已回退到校园知识库目录: %s -> %s", data_path, campus_data_path)
                 self.config.data_path = str(campus_data_path)
             else:
                 raise FileNotFoundError(f"数据路径不存在: {self.config.data_path}")
@@ -103,7 +103,9 @@ class CampusRAGSystem:
 
         # 1. 用源文件指纹和索引配置判断本地向量索引是否仍然可用
         print("检查向量索引缓存...")
+        # 构建预期的 manifest
         expected_manifest = self.index_module.build_manifest(self.config.data_path)
+        # 加载索引
         vectorstore = self.index_module.load_index(expected_manifest)
 
         # 2. 无论向量索引是否命中缓存，BM25 和父文档回答都需要当前文档与分块
@@ -153,7 +155,7 @@ class CampusRAGSystem:
         Args:
             question: 用户问题
             stream: 是否使用流式输出
-            return_sources: 是否返回结构化回答和检索来源
+            return_sources: 是否返回结构化回答和检索来源 （默认否）
         Returns:
             生成的回答、生成器或结构化RAG响应
         """
@@ -281,7 +283,7 @@ class CampusRAGSystem:
             parent_docs: 生成回答使用的父文档列表
             retrieved_chunks: 检索召回的文档块列表
         Returns:
-            结构化来源列表。同一父文档的多个文档块会共享同一个 source_id
+            结构化来源列表 同一父文档的多个文档块会共享同一个 source_id
         """
         source_id_by_parent_id = {}
         parent_metadata_by_parent_id = {}
@@ -404,26 +406,6 @@ class CampusRAGSystem:
 
         return filters
     
-    def get_related_documents(self, doc_title: str) -> str:
-        """
-        获取指定文档的相关信息
-        Args:
-            doc_title: 文档标题
-        Returns:
-            相关信息
-        """
-        if not all([self.retrieval_module, self.generation_module]):
-            raise ValueError("请先构建知识库")
-
-        # 检索相关文档块，并映射到完整父文档
-        retrieved_chunks = self.retrieval_module.hybrid_search(doc_title, top_k=3)
-        parent_docs = self.data_module.get_parent_documents(retrieved_chunks)
-
-        # 生成相关信息
-        answer = self.generation_module.generate_basic_answer(f"{doc_title}有哪些相关规定？", parent_docs)
-
-        return answer
-    
     def run_interactive(self):
         """运行交互式问答"""
         print("=" * 60)
@@ -442,7 +424,10 @@ class CampusRAGSystem:
         while True:
             try:
                 user_input = input("\n您的问题: ").strip()
-                if user_input.lower() in ['退出', 'quit', 'exit', '']:
+                if not user_input:
+                    print("请输入问题内容，或输入'退出'结束。")
+                    continue
+                if user_input.lower() in ['退出', 'quit', 'exit']:
                     break
                 
                 # 询问是否使用流式输出
@@ -461,6 +446,9 @@ class CampusRAGSystem:
                     print(f"{answer}\n")
                 
             except KeyboardInterrupt:
+                break
+            except EOFError:
+                print("\n输入流已结束，退出交互式问答。")
                 break
             except Exception as e:
                 print(f"处理问题时出错: {e}")

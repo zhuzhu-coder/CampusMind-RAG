@@ -10,9 +10,11 @@ from typing import Any, Dict, List
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
+from .chunking_config import CHUNKING_CONFIG
 from .document_ingestion import load_documents as load_campus_documents
 from .document_ingestion import normalize_text
 
+# 创建当前模块的日志记录器
 logger = logging.getLogger(__name__)
 
 
@@ -27,10 +29,15 @@ class DataPreparationModule:
         Args:
             data_path: 数据文件夹路径
         """
+        # 初始化数据路径
         self.data_path = data_path
+        # 初始化文档列表
         self.documents: List[Document] = []
+        # 初始化分块列表
         self.chunks: List[Document] = []
+        # 初始化父子映射
         self.parent_child_map: Dict[str, str] = {}
+        # 初始化父文档映射
         self.parent_documents_map: Dict[str, Document] = {}
 
     def load_documents(self) -> List[Document]:
@@ -40,12 +47,11 @@ class DataPreparationModule:
             加载的完整父文档列表
         """
         logger.info("正在从 %s 加载校园文档...", self.data_path)
-
+        # 文档列表
         documents = load_campus_documents(self.data_path)
         self.documents = documents
-        self.chunks = []
-        self.parent_child_map = {}
-        self.parent_documents_map = {}
+        # 初始化派生状态
+        self._reset_loaded_state()
 
         for parent_doc in self.documents:
             self._normalize_parent_metadata(parent_doc)
@@ -56,8 +62,17 @@ class DataPreparationModule:
         logger.info("成功加载 %s 个父文档", len(self.documents))
         return documents
 
+    def _reset_loaded_state(self) -> None:
+        """清空派生状态，避免重复加载时串数据"""
+        # 分块结果
+        self.chunks = []
+        # 子块到父文档的映射
+        self.parent_child_map = {}
+        # 父文档索引
+        self.parent_documents_map = {}
+
     def _normalize_parent_metadata(self, parent_doc: Document) -> None:
-        """补齐校园文档的标准元数据。"""
+        """补齐校园文档的标准元数据"""
         metadata = parent_doc.metadata or {}
         source = metadata.get("source", "")
         source_path = Path(source) if source else Path(self.data_path)
@@ -70,6 +85,7 @@ class DataPreparationModule:
         if not parent_id:
             parent_seed = metadata.get("relative_path") or source_path.as_posix() or doc_title
             parent_id = hashlib.md5(parent_seed.encode("utf-8")).hexdigest()
+        doc_id = metadata.get("doc_id") or parent_id
 
         metadata.update(
             {
@@ -78,12 +94,13 @@ class DataPreparationModule:
                 "department": department,
                 "file_type": file_type,
                 "parent_id": parent_id,
-                "doc_id": metadata.get("doc_id") or parent_id,
-                "section": metadata.get("section") or doc_title,
+                "doc_id": doc_id,
                 "source": source,
                 "doc_type": "parent",
             }
         )
+        # 父文档不保存 section；章节/页码位置由子块 metadata 表达
+        metadata.pop("section", None)
         parent_doc.metadata = metadata
 
     @classmethod
@@ -106,7 +123,7 @@ class DataPreparationModule:
         self.parent_child_map = {}
 
         for parent_doc in self.documents:
-            parent_chunks = self._split_parent_document(parent_doc)
+            parent_chunks: List[Document] = self._split_parent_document(parent_doc)
             for chunk_index, raw_chunk in enumerate(parent_chunks):
                 cleaned_content = normalize_text(raw_chunk.page_content or "")
                 if not cleaned_content:
@@ -127,41 +144,35 @@ class DataPreparationModule:
         return chunks
 
     def _split_parent_document(self, parent_doc: Document) -> List[Document]:
-        """按文件类型选择合适的切分策略。"""
+        """
+        按文件类型选择合适的切分策略
+        Args:
+            parent_doc: 父文档
+        Returns:
+            List[Document]: 分块后的文档块列表
+        """
         file_type = (parent_doc.metadata.get("file_type") or "").lower()
 
         if file_type == "md":
             return self._split_markdown_document(parent_doc)
         if file_type == "txt":
-            return self._split_text_document(
-                parent_doc,
-                chunk_size=800,
-                chunk_overlap=120,
-                separators=["\n\n", "\n", "。", "；", ";", "，", ",", " ", ""],
-            )
+            return self._split_text_document(parent_doc, CHUNKING_CONFIG["txt"])
         if file_type == "pdf":
-            return self._split_text_document(
-                parent_doc,
-                chunk_size=1000,
-                chunk_overlap=150,
-                separators=["\n\n", "\n", "。", "；", ";", "，", ",", " ", ""],
-            )
-
+            return self._split_text_document(parent_doc, CHUNKING_CONFIG["pdf"])
+        # 其他文件类型，返回原始内容
         return [Document(page_content=parent_doc.page_content, metadata={})]
 
     def _split_markdown_document(self, parent_doc: Document) -> List[Document]:
-        """Markdown 文档优先按标题切分，没有标题则退回通用分块。"""
+        """Markdown 文档优先按标题切分，没有标题则退回通用分块"""
+        markdown_config = CHUNKING_CONFIG["md"]
+        fallback_config = markdown_config["fallback"]
+        # 检查是否有标题
         if not self._has_markdown_headers(parent_doc.page_content):
-            return self._split_text_document(
-                parent_doc,
-                chunk_size=800,
-                chunk_overlap=120,
-                separators=["\n\n", "\n", "。", "；", ";", "，", ",", " ", ""],
-            )
+            return self._split_text_document(parent_doc, fallback_config)
 
         splitter = MarkdownHeaderTextSplitter(
-            headers_to_split_on=[("#", "h1"), ("##", "h2"), ("###", "h3")],
-            strip_headers=False,
+            headers_to_split_on=[tuple(header) for header in markdown_config["headers_to_split_on"]],
+            strip_headers=bool(markdown_config["strip_headers"]),
         )
 
         try:
@@ -170,50 +181,40 @@ class DataPreparationModule:
             logger.warning("Markdown 结构分割失败: %s, error=%s", parent_doc.metadata.get("source"), exc)
             markdown_chunks = []
 
-        cleaned_chunks: List[Document] = []
+        chunks: List[Document] = []
         for chunk in markdown_chunks:
-            cleaned_content = normalize_text(chunk.page_content or "")
-            if not cleaned_content:
+            if not (chunk.page_content or "").strip():
                 continue
-            cleaned_chunks.append(Document(page_content=cleaned_content, metadata=dict(chunk.metadata or {})))
+            chunks.append(Document(page_content=chunk.page_content, metadata=dict(chunk.metadata or {})))
 
-        if cleaned_chunks:
-            return cleaned_chunks
-
-        return self._split_text_document(
-            parent_doc,
-            chunk_size=800,
-            chunk_overlap=120,
-            separators=["\n\n", "\n", "。", "；", ";", "，", ",", " ", ""],
-        )
+        if chunks:
+            return chunks
+        # 没有有效分块，调用通用分块配置
+        return self._split_text_document(parent_doc, fallback_config)
 
     def _split_text_document(
         self,
         parent_doc: Document,
-        chunk_size: int,
-        chunk_overlap: int,
-        separators: List[str],
+        config: Dict[str, Any],
     ) -> List[Document]:
-        """使用递归字符分割器切分普通文本。"""
+        """使用递归字符分割器按配置切分普通文本"""
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            separators=separators,
+            chunk_size=int(config["chunk_size"]),
+            chunk_overlap=int(config["chunk_overlap"]),
+            separators=list(config["separators"]),
         )
 
         raw_chunks = splitter.split_text(parent_doc.page_content)
         chunks: List[Document] = []
         for raw_chunk in raw_chunks:
-            cleaned_content = normalize_text(raw_chunk)
-            if cleaned_content:
-                chunks.append(Document(page_content=cleaned_content, metadata={}))
+            if raw_chunk.strip():
+                chunks.append(Document(page_content=raw_chunk, metadata={}))
 
         if chunks:
             return chunks
-
-        fallback_content = normalize_text(parent_doc.page_content)
-        if fallback_content:
-            return [Document(page_content=fallback_content, metadata={})]
+        # 没有有效分块，返回原始内容
+        if (parent_doc.page_content or "").strip():
+            return [Document(page_content=parent_doc.page_content, metadata={})]
 
         return []
 
@@ -225,7 +226,17 @@ class DataPreparationModule:
         chunk_index: int,
         batch_index: int,
     ) -> Document:
-        """把分块内容转成带标准元数据的子文档。"""
+        """
+        把分块内容转成带标准元数据的子文档
+        Args:
+            parent_doc: 父文档
+            raw_chunk: 原始分块文档
+            cleaned_content: 清理后的分块内容
+            chunk_index: 分块索引
+            batch_index: 批次索引
+        Returns:
+            Document: 带标准元数据的子文档
+        """
         parent_metadata = dict(parent_doc.metadata or {})
         chunk_metadata = dict(raw_chunk.metadata or {})
         parent_id = parent_metadata.get("parent_id") or parent_metadata.get("doc_id")
@@ -259,7 +270,14 @@ class DataPreparationModule:
         return Document(page_content=cleaned_content, metadata=metadata)
 
     def _infer_section(self, parent_doc: Document, chunk_metadata: Dict[str, Any]) -> str:
-        """推断分块的章节标题。"""
+        """
+        推断分块的章节标题
+        Args:
+            parent_doc: 父文档
+            chunk_metadata: 分块元数据
+        Returns:
+            str: 推断出的分块的章节标题
+        """
         section_parts: List[str] = []
         for key in ("h1", "h2", "h3"):
             value = chunk_metadata.get(key)
@@ -272,11 +290,11 @@ class DataPreparationModule:
         if page is not None:
             return f"第{page}页"
 
-        return parent_doc.metadata.get("doc_title") or parent_doc.metadata.get("source_name") or "正文"
+        return "正文"
 
     @staticmethod
     def _has_markdown_headers(text: str) -> bool:
-        """判断文本中是否存在 Markdown 标题。"""
+        """判断文本中是否存在 Markdown 标题"""
         for line in text.splitlines()[:20]:
             if line.lstrip().startswith("#"):
                 return True
@@ -284,7 +302,14 @@ class DataPreparationModule:
 
     @staticmethod
     def _make_chunk_id(parent_id: str, chunk_index: int) -> str:
-        """生成稳定的文档块ID，便于向量索引和BM25结果去重"""
+        """
+        生成稳定的文档块ID，便于向量索引和BM25结果去重
+        Args:
+            parent_id: 父文档ID
+            chunk_index: 分块索引
+        Returns:
+            str: 稳定的文档块ID
+        """
         raw_id = f"{parent_id}:{chunk_index}"
         return hashlib.md5(raw_id.encode("utf-8")).hexdigest()
 
@@ -296,44 +321,48 @@ class DataPreparationModule:
         Returns:
             对应的父文档列表（去重，按最强召回证据排序）
         """
+        # 父文档命中信息
         parent_rank_info: Dict[str, Dict[str, Any]] = {}
+        # 父文档映射
         parent_docs_map: Dict[str, Document] = {}
 
         for chunk_rank, chunk in enumerate(retrieved_chunks):
             chunk_metadata = chunk.metadata or {}
+            # 从 chunk metadata 中获取父文档ID
             parent_id = chunk_metadata.get("parent_id")
             if not parent_id:
                 continue
-
+            # 读取 chunk 的 RRF分数，默认值为0.0
             raw_score = chunk_metadata.get("rrf_score")
             try:
                 chunk_score = float(raw_score) if raw_score is not None else 0.0
             except (TypeError, ValueError):
                 chunk_score = 0.0
-
+            # 汇总每个父文档的命中信息
             if parent_id not in parent_rank_info:
                 parent_rank_info[parent_id] = {
-                    "first_rank": chunk_rank,
-                    "best_score": chunk_score,
-                    "hit_count": 1,
+                    "first_rank": chunk_rank, # 第一个命中块的排名
+                    "best_score": chunk_score,# 最佳命中块的RRF分数
+                    "hit_count": 1, # 命中次数
                 }
             else:
                 rank_info = parent_rank_info[parent_id]
                 rank_info["hit_count"] += 1
                 rank_info["first_rank"] = min(rank_info["first_rank"], chunk_rank)
                 rank_info["best_score"] = max(rank_info["best_score"], chunk_score)
-
+            # 找完整父文档对象
             if parent_id not in parent_docs_map:
+                # 先从缓存父文档映射中查找
                 parent_doc = self.parent_documents_map.get(parent_id)
                 if parent_doc is not None:
                     parent_docs_map[parent_id] = parent_doc
                     continue
-
+                # 如果缓存中没有，再从所有文档中查找
                 for candidate in self.documents:
                     if candidate.metadata.get("parent_id") == parent_id:
                         parent_docs_map[parent_id] = candidate
                         break
-
+        # 将父文档按第一个命中块的排名、最佳命中块的RRF分数、命中次数排序
         sorted_parent_ids = sorted(
             parent_rank_info.keys(),
             key=lambda parent_id: (
@@ -379,9 +408,11 @@ class DataPreparationModule:
                 "file_types": {},
                 "avg_chunk_size": 0,
             }
-
+        # 分类
         categories: Dict[str, int] = {}
+        # 部门
         departments: Dict[str, int] = {}
+        # 文件类型
         file_types: Dict[str, int] = {}
 
         for parent_doc in self.documents:
@@ -395,47 +426,16 @@ class DataPreparationModule:
 
             file_type = metadata.get("file_type") or "unknown"
             file_types[file_type] = file_types.get(file_type, 0) + 1
-
+        # 平均块大小
         avg_chunk_size = 0
         if self.chunks:
             avg_chunk_size = sum(chunk.metadata.get("chunk_size", 0) for chunk in self.chunks) / len(self.chunks)
 
         return {
-            "total_documents": len(self.documents),
-            "total_chunks": len(self.chunks),
+            "total_documents": len(self.documents), # 总文档数
+            "total_chunks": len(self.chunks), # 总块数
             "categories": categories,
             "departments": departments,
             "file_types": file_types,
             "avg_chunk_size": avg_chunk_size,
         }
-
-    def export_metadata(self, output_path: str):
-        """
-        导出元数据到JSON文件
-        Args:
-            output_path: 输出文件路径
-        """
-        import json
-
-        metadata_list = []
-        for parent_doc in self.documents:
-            metadata = parent_doc.metadata or {}
-            metadata_list.append(
-                {
-                    "source": metadata.get("source"),
-                    "relative_path": metadata.get("relative_path"),
-                    "doc_id": metadata.get("doc_id"),
-                    "doc_title": metadata.get("doc_title"),
-                    "doc_category": metadata.get("doc_category"),
-                    "department": metadata.get("department"),
-                    "file_type": metadata.get("file_type"),
-                    "section": metadata.get("section"),
-                    "page": metadata.get("page"),
-                    "content_length": len(parent_doc.page_content),
-                }
-            )
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(metadata_list, f, ensure_ascii=False, indent=2)
-
-        logger.info("元数据已导出到: %s", output_path)

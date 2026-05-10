@@ -37,14 +37,14 @@ def test_build_context_truncates_long_first_document_instead_of_dropping_it(monk
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
-        page_content="做法：" + "先煎后炒。" * 40,
+        page_content="说明：" + "按流程提交材料。" * 40,
         metadata={"doc_title": "长文档", "doc_category": "规章制度", "department": "学生处"},
     )
 
     context = generator._build_context([doc], max_length=90)
 
     assert "长文档" in context
-    assert "做法" in context
+    assert "说明" in context
     assert len(context) <= 90
 
 
@@ -53,36 +53,34 @@ def test_build_context_labels_parent_documents_with_citation_numbers(monkeypatch
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
-        page_content="## 操作步骤\n先炒鸡蛋，再炒番茄。",
+        page_content="## 办理流程\n先提交申请，再等待审批。",
         metadata={
             "doc_title": "学生请假管理办法",
             "doc_category": "规章制度",
             "department": "学生处",
-            "source": "data/cook/vegetable_dish/番茄炒蛋.md",
-            "二级标题": "操作步骤",
+            "source": "data/campus/regulations/student_affairs/学生请假管理办法.md",
+            "二级标题": "办理流程",
         },
     )
 
     context = generator._build_context([doc])
 
     assert "[1] 校园文档: 学生请假管理办法" in context
-    assert "菜谱" not in context
-    assert "来源: data/cook/vegetable_dish/番茄炒蛋.md" in context
+    assert "来源: data/campus/regulations/student_affairs/学生请假管理办法.md" in context
 
 
-def test_build_context_does_not_fall_back_to_legacy_dish_name(monkeypatch):
+def test_build_context_does_not_fall_back_to_legacy_domain_fields(monkeypatch):
     module = _reload_module(monkeypatch, "rag_modules.generation_integration")
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
-        page_content="## 操作步骤\n先炒鸡蛋，再炒番茄。",
-        metadata={"source": "data/campus/regulations/学生请假管理办法.md"},
+        page_content="## 请假流程\n先提交申请，再学院审批。",
+        metadata={"source": "data/campus/regulations/student_affairs/学生请假管理办法.md"},
     )
 
     context = generator._build_context([doc])
 
     assert "[1] 校园文档: 未知文档" in context
-    assert "菜谱" not in context
 
 
 def test_grounded_answer_rules_require_citations_and_no_hallucination(monkeypatch):
@@ -113,20 +111,20 @@ def test_append_reference_lines_adds_references_once(monkeypatch):
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
-        page_content="## 操作步骤\n先炒鸡蛋。",
+        page_content="## 办理流程\n先提交申请。",
         metadata={
             "doc_title": "学生请假管理办法",
-            "source": "data/campus/regulations/学生请假管理办法.md",
+            "source": "data/campus/regulations/student_affairs/学生请假管理办法.md",
         },
     )
 
-    answer = "番茄炒蛋需要鸡蛋和番茄。[1]"
+    answer = "请假超过三天需要学院审批。[1]"
     with_references = generator._append_reference_lines(answer, [doc])
 
     assert with_references == (
-        "番茄炒蛋需要鸡蛋和番茄。[1]\n\n"
+        "请假超过三天需要学院审批。[1]\n\n"
         "参考来源:\n"
-        "[1] 学生请假管理办法 - data/campus/regulations/学生请假管理办法.md"
+        "[1] 学生请假管理办法 - data/campus/regulations/student_affairs/学生请假管理办法.md"
     )
     assert generator._append_reference_lines(with_references, [doc]) == with_references
 
@@ -136,27 +134,27 @@ def test_stream_with_reference_lines_adds_references_once(monkeypatch):
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
-        page_content="## 操作步骤\n先炒鸡蛋。",
+        page_content="## 办理流程\n先提交申请。",
         metadata={
             "doc_title": "学生请假管理办法",
-            "source": "data/campus/regulations/学生请假管理办法.md",
+            "source": "data/campus/regulations/student_affairs/学生请假管理办法.md",
         },
     )
 
     streamed_answer = "".join(
-        generator._stream_with_reference_lines(["番茄炒蛋需要鸡蛋和番茄。[1]"], [doc])
+        generator._stream_with_reference_lines(["请假超过三天需要学院审批。[1]"], [doc])
     )
 
     assert streamed_answer == (
-        "番茄炒蛋需要鸡蛋和番茄。[1]\n\n"
+        "请假超过三天需要学院审批。[1]\n\n"
         "参考来源:\n"
-        "[1] 学生请假管理办法 - data/campus/regulations/学生请假管理办法.md"
+        "[1] 学生请假管理办法 - data/campus/regulations/student_affairs/学生请假管理办法.md"
     )
 
     already_has_references = "".join(
         generator._stream_with_reference_lines(
             [
-                "番茄炒蛋需要鸡蛋和番茄。[1]\n\n",
+                "请假超过三天需要学院审批。[1]\n\n",
                 "参考来源:\n[1] 学生请假管理办法",
             ],
             [doc],
@@ -173,19 +171,19 @@ def test_generate_list_answer_includes_citation_numbers(monkeypatch):
 
     parent_docs = [
         Document(
-            page_content="## 操作步骤\n先炒鸡蛋。",
+            page_content="## 办理流程\n先提交申请。",
             metadata={
                 "doc_title": "学生请假管理办法",
-                "source": "data/campus/regulations/学生请假管理办法.md",
+                "source": "data/campus/regulations/student_affairs/学生请假管理办法.md",
             },
         )
     ]
 
-    answer = generator.generate_list_answer("推荐一个素菜", parent_docs)
+    answer = generator.generate_list_answer("列出请假相关规定", parent_docs)
 
     assert "学生请假管理办法 [1]" in answer
     assert "参考来源" in answer
-    assert "[1] 学生请假管理办法 - data/campus/regulations/学生请假管理办法.md" in answer
+    assert "[1] 学生请假管理办法 - data/campus/regulations/student_affairs/学生请假管理办法.md" in answer
 
 
 def test_rrf_rerank_keeps_distinct_chunks_with_same_content(monkeypatch):
@@ -205,11 +203,11 @@ def test_rrf_rerank_deduplicates_same_parent_chunk_from_different_retrievers(mon
     retriever = module.RetrievalOptimizationModule.__new__(module.RetrievalOptimizationModule)
 
     vector_chunk = Document(
-        page_content="番茄炒蛋操作步骤",
+        page_content="请假审批流程",
         metadata={"chunk_id": "vector-id", "parent_id": "parent-1", "chunk_index": 2},
     )
     bm25_chunk = Document(
-        page_content="番茄炒蛋操作步骤",
+        page_content="请假审批流程",
         metadata={"chunk_id": "bm25-id", "parent_id": "parent-1", "chunk_index": 2},
     )
 
@@ -217,6 +215,18 @@ def test_rrf_rerank_deduplicates_same_parent_chunk_from_different_retrievers(mon
 
     assert len(reranked) == 1
     assert reranked[0].metadata["rrf_score"] > 0.03
+
+
+def test_rrf_rerank_does_not_mutate_input_chunk_metadata(monkeypatch):
+    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    retriever = module.RetrievalOptimizationModule.__new__(module.RetrievalOptimizationModule)
+
+    original_chunk = Document(page_content="请假审批流程", metadata={"chunk_id": "chunk-a"})
+
+    reranked = retriever._rrf_rerank([original_chunk], [])
+
+    assert reranked[0].metadata["rrf_score"] > 0
+    assert "rrf_score" not in original_chunk.metadata
 
 
 def test_retrievers_use_candidate_count_and_chinese_preprocess(monkeypatch):
@@ -236,14 +246,14 @@ def test_retrievers_use_candidate_count_and_chinese_preprocess(monkeypatch):
             return object()
 
     monkeypatch.setattr(module, "BM25Retriever", FakeBM25Retriever)
-    chunks = [Document(page_content="宫保鸡丁做法", metadata={"chunk_id": "1"})]
+    chunks = [Document(page_content="学生请假流程", metadata={"chunk_id": "1"})]
 
     module.RetrievalOptimizationModule(FakeVectorStore(), chunks, candidate_k=8)
 
     assert captured["vector_kwargs"]["search_kwargs"]["k"] == 8
     assert captured["bm25_kwargs"]["k"] == 8
     assert callable(captured["bm25_kwargs"]["preprocess_func"])
-    assert captured["bm25_kwargs"]["preprocess_func"]("宫保鸡丁")
+    assert captured["bm25_kwargs"]["preprocess_func"]("学生请假")
 
 
 def test_retrieval_module_exposes_vector_and_bm25_search_methods(monkeypatch):
@@ -267,21 +277,23 @@ def test_retrieval_module_exposes_vector_and_bm25_search_methods(monkeypatch):
     retriever.vector_retriever = FakeVectorRetriever()
     retriever.bm25_retriever = FakeBM25Retriever()
 
-    assert [doc.metadata["chunk_id"] for doc in retriever.vector_search("番茄炒蛋", top_k=1)] == ["v1"]
-    assert [doc.metadata["chunk_id"] for doc in retriever.bm25_search("番茄炒蛋", top_k=2)] == ["b1", "b2"]
+    assert [doc.metadata["chunk_id"] for doc in retriever.vector_search("学生请假", top_k=1)] == ["v1"]
+    assert [doc.metadata["chunk_id"] for doc in retriever.bm25_search("学生请假", top_k=2)] == ["b1", "b2"]
 
 
-def test_pkg_resources_shim_allows_jieba_import(monkeypatch):
+def test_jieba_cut_for_search_imports_without_pkg_resources_shim(monkeypatch):
     module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+
+    assert not hasattr(module, "_build_pkg_resources_shim")
+    assert not hasattr(module, "_temporary_pkg_resources_shim")
 
     for name in list(sys.modules):
         if name == "jieba" or name.startswith("jieba.") or name == "pkg_resources":
             monkeypatch.delitem(sys.modules, name, raising=False)
 
-    with module._temporary_pkg_resources_shim():
-        import jieba
+    module._get_jieba_cut_for_search.cache_clear()
 
-    assert callable(jieba.cut_for_search)
+    assert callable(module._get_jieba_cut_for_search())
 
 
 def test_metadata_filtered_search_rebuilds_bm25_from_all_filtered_chunks(monkeypatch):
@@ -332,6 +344,51 @@ def test_metadata_filtered_search_rebuilds_bm25_from_all_filtered_chunks(monkeyp
     assert [doc.metadata["chunk_id"] for doc in captured["factory_calls"][1]["documents"]] == ["a", "b", "c"]
 
 
+def test_metadata_filtered_search_fallback_uses_expanded_candidate_count(monkeypatch):
+    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    captured = {"similarity_calls": []}
+
+    chunks = [
+        Document(page_content="校园卡补办说明", metadata={"doc_category": "校园生活", "chunk_id": "life"}),
+        Document(page_content="学生请假管理办法一", metadata={"doc_category": "规章制度", "chunk_id": "rule-a"}),
+        Document(page_content="学生请假管理办法二", metadata={"doc_category": "规章制度", "chunk_id": "rule-b"}),
+    ]
+
+    class FakeVectorRetriever:
+        def invoke(self, query):
+            return [chunks[0]]
+
+    class FakeVectorStore:
+        def as_retriever(self, **kwargs):
+            return FakeVectorRetriever()
+
+        def similarity_search(self, query, k=5, filter=None):
+            captured["similarity_calls"].append({"k": k, "filter": filter})
+            if filter is not None:
+                raise TypeError("filter is not supported")
+            return list(chunks)
+
+    class FakeBM25Retriever:
+        def invoke(self, query):
+            return []
+
+    class FakeBM25RetrieverFactory:
+        @classmethod
+        def from_documents(cls, documents, **kwargs):
+            return FakeBM25Retriever()
+
+    monkeypatch.setattr(module, "BM25Retriever", FakeBM25RetrieverFactory)
+
+    retriever = module.RetrievalOptimizationModule(FakeVectorStore(), chunks, candidate_k=2)
+    results = retriever.metadata_filtered_search("规章制度有哪些", {"doc_category": "规章制度"}, top_k=2)
+
+    assert captured["similarity_calls"] == [
+        {"k": 6, "filter": {"doc_category": "规章制度"}},
+        {"k": 6, "filter": None},
+    ]
+    assert [doc.metadata["chunk_id"] for doc in results] == ["rule-a", "rule-b"]
+
+
 def test_bm25_setup_is_compatible_with_installed_langchain_community(monkeypatch):
     module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
 
@@ -339,26 +396,82 @@ def test_bm25_setup_is_compatible_with_installed_langchain_community(monkeypatch
         def as_retriever(self, **kwargs):
             return object()
 
-    chunks = [Document(page_content="宫保鸡丁做法", metadata={"chunk_id": "1"})]
+    chunks = [Document(page_content="学生请假流程", metadata={"chunk_id": "1"})]
 
     retriever = module.RetrievalOptimizationModule(FakeVectorStore(), chunks, candidate_k=1)
 
-    assert retriever.bm25_retriever.invoke("鸡丁")
+    assert retriever.bm25_retriever.invoke("请假")
 
 
 def test_source_fingerprint_changes_when_source_records_change(monkeypatch):
     module = _reload_module(monkeypatch, "rag_modules.index_construction")
 
     first_fingerprint = module.IndexConstructionModule._fingerprint_source_records([
-        {"relative_path": "vegetable_dish/番茄炒蛋.md", "content_sha256": "first"},
+        {"relative_path": "regulations/student_affairs/学生请假管理办法.md", "content_sha256": "first"},
     ])
     second_fingerprint = module.IndexConstructionModule._fingerprint_source_records([
-        {"relative_path": "vegetable_dish/番茄炒蛋.md", "content_sha256": "second"},
+        {"relative_path": "regulations/student_affairs/学生请假管理办法.md", "content_sha256": "second"},
     ])
 
     assert first_fingerprint.startswith("sha256:")
     assert second_fingerprint.startswith("sha256:")
     assert first_fingerprint != second_fingerprint
+
+
+def test_setup_embeddings_configures_request_timeout(monkeypatch):
+    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+
+    indexer = module.IndexConstructionModule("text-embedding-v4", index_save_path="unused-index")
+
+    assert indexer.embeddings.kwargs["timeout"] == module.EMBEDDING_TIMEOUT_SECONDS
+
+
+def test_build_manifest_tracks_md_txt_and_pdf_sources(monkeypatch, tmp_path):
+    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    indexer = module.IndexConstructionModule.__new__(module.IndexConstructionModule)
+    indexer.model_name = "text-embedding-v4"
+    indexer.embedding_dimensions = module.EMBEDDING_DIMENSIONS
+
+    data_root = tmp_path / "data" / "campus"
+    (data_root / "regulations").mkdir(parents=True)
+    (data_root / "teaching").mkdir(parents=True)
+    (data_root / "life").mkdir(parents=True)
+
+    md_file = data_root / "regulations" / "student_affairs.md"
+    txt_file = data_root / "teaching" / "exam_notice.txt"
+    pdf_file = data_root / "life" / "campus_notice.pdf"
+
+    md_file.write_text("# 学生事务管理办法", encoding="utf-8")
+    txt_file.write_text("期末考试安排", encoding="utf-8")
+    pdf_file.write_bytes(b"%PDF-1.4\n%%EOF")
+
+    first_manifest = indexer.build_manifest(str(data_root))
+    txt_file.write_text("期末考试安排已更新", encoding="utf-8")
+    second_manifest = indexer.build_manifest(str(data_root))
+
+    assert first_manifest["source_document_count"] == 3
+    assert first_manifest["source_fingerprint"] != second_manifest["source_fingerprint"]
+
+
+def test_build_manifest_records_chunking_strategy_per_file_type(monkeypatch, tmp_path):
+    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    indexer = module.IndexConstructionModule.__new__(module.IndexConstructionModule)
+    indexer.model_name = "text-embedding-v4"
+    indexer.embedding_dimensions = module.EMBEDDING_DIMENSIONS
+
+    data_root = tmp_path / "data" / "campus"
+    data_root.mkdir(parents=True)
+
+    manifest = indexer.build_manifest(str(data_root))
+
+    assert set(manifest["chunking"]) >= {"md", "txt", "pdf"}
+    assert manifest["chunking"]["md"]["splitter"] == "MarkdownHeaderTextSplitter"
+    assert manifest["chunking"]["md"]["fallback"]["splitter"] == "RecursiveCharacterTextSplitter"
+    assert manifest["chunking"]["txt"]["chunk_size"] == 800
+    assert manifest["chunking"]["txt"]["chunk_overlap"] == 120
+    assert manifest["chunking"]["pdf"]["chunk_size"] == 1000
+    assert manifest["chunking"]["pdf"]["chunk_overlap"] == 150
 
 
 def test_load_index_returns_none_when_manifest_is_missing(monkeypatch):
