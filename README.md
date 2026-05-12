@@ -1,8 +1,6 @@
-# 校园知识库 RAG
+# CampusMind RAG
 
 面向校园规章、教务通知、生活服务、图书馆公告和网络维护等文档的 RAG 问答系统。项目基于 LangChain 1.x、FAISS、BM25 和 FastAPI，支持 PDF、Markdown、TXT 文档接入，提供命令行问答、Web 问答页、HTTP API、检索评估和结构化 trace。
-
-这个仓库的目标不是只跑一个演示，而是沉淀一个可以验证、调优、集成的校园知识库后端。
 
 ## 核心能力
 
