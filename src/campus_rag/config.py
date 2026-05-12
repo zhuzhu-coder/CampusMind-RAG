@@ -1,16 +1,13 @@
-"""
-RAG系统配置文件
-"""
+"""Configuration for the campus RAG package."""
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Any
 
-# 取当前文件的绝对路径的父目录
-CODE_DIR = Path(__file__).resolve().parent
-# 再取CODE_DIR的父目录，即项目根目录
-PROJECT_ROOT = CODE_DIR.parent
+PACKAGE_DIR = Path(__file__).resolve().parent
+SRC_DIR = PACKAGE_DIR.parent
+PROJECT_ROOT = SRC_DIR.parent
 
 
 def resolve_project_path(path_value: str) -> str:
@@ -36,6 +33,8 @@ class RAGConfig:
     # 检索配置
     top_k: int = 3
     retrieval_candidate_k: int = 10 # 检索候选数量
+    rrf_k: int = 60 # RRF 平滑参数
+    context_window_size: int = 1 # 生成上下文中命中块前后回填的相邻块数量
 
     # 生成配置
     temperature: float = 0.1
@@ -50,6 +49,8 @@ class RAGConfig:
         # 类型转换，将从环境变量中获取的字符串转换为整数或浮点数
         self.top_k = int(self.top_k)
         self.retrieval_candidate_k = int(self.retrieval_candidate_k)
+        self.rrf_k = int(self.rrf_k)
+        self.context_window_size = int(self.context_window_size)
         self.temperature = float(self.temperature)
         self.max_tokens = int(self.max_tokens)
     
@@ -63,6 +64,8 @@ class RAGConfig:
             "llm_model": "RAG_LLM_MODEL",
             "top_k": "RAG_TOP_K",
             "retrieval_candidate_k": "RAG_RETRIEVAL_CANDIDATE_K",
+            "rrf_k": "RAG_RRF_K",
+            "context_window_size": "RAG_CONTEXT_WINDOW_SIZE",
             "temperature": "RAG_TEMPERATURE",
             "max_tokens": "RAG_MAX_TOKENS",
         }
@@ -83,9 +86,9 @@ class RAGConfig:
             'llm_model': self.llm_model,
             'top_k': self.top_k,
             'retrieval_candidate_k': self.retrieval_candidate_k,
+            'rrf_k': self.rrf_k,
+            'context_window_size': self.context_window_size,
             'temperature': self.temperature,
             'max_tokens': self.max_tokens
         }
 
-# 默认配置实例
-DEFAULT_CONFIG = RAGConfig.from_env()

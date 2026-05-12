@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from config import CODE_DIR, PROJECT_ROOT, RAGConfig
+from campus_rag.config import PACKAGE_DIR, PROJECT_ROOT, RAGConfig
 
 
 def test_default_paths_are_absolute_and_project_relative():
@@ -33,7 +33,7 @@ def test_absolute_paths_are_preserved():
 
     assert Path(config.data_path) == data_path
     assert Path(config.index_save_path) == index_path
-    assert CODE_DIR == PROJECT_ROOT / "code"
+    assert PACKAGE_DIR == PROJECT_ROOT / "src" / "campus_rag"
 
 
 def test_config_can_be_created_from_environment(monkeypatch):
@@ -45,6 +45,8 @@ def test_config_can_be_created_from_environment(monkeypatch):
     monkeypatch.setenv("RAG_TEMPERATURE", "0.2")
     monkeypatch.setenv("RAG_MAX_TOKENS", "512")
     monkeypatch.setenv("RAG_RETRIEVAL_CANDIDATE_K", "12")
+    monkeypatch.setenv("RAG_RRF_K", "42")
+    monkeypatch.setenv("RAG_CONTEXT_WINDOW_SIZE", "2")
 
     config = RAGConfig.from_env()
 
@@ -56,3 +58,12 @@ def test_config_can_be_created_from_environment(monkeypatch):
     assert config.temperature == 0.2
     assert config.max_tokens == 512
     assert config.retrieval_candidate_k == 12
+    assert config.rrf_k == 42
+    assert config.context_window_size == 2
+
+
+def test_context_window_size_defaults_to_one():
+    config = RAGConfig()
+
+    assert config.context_window_size == 1
+

@@ -4,10 +4,12 @@
 
 import os
 import logging
+import json
 import re
-from typing import Iterable, Iterator, List
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 
-from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
 from langchain_core.runnables import RunnablePassthrough
@@ -15,10 +17,19 @@ from langchain_core.output_parsers import StrOutputParser
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass(frozen=True)
+class QueryAnalysis:
+    """一次 LLM 查询分析的结构化结果"""
+
+    route_type: str
+    rewritten_query: str
+
+
 class GenerationIntegrationModule:
     """生成集成模块 - 负责LLM集成和回答生成"""
     
-    def __init__(self, model_name: str = "kimi-k2-0711-preview", temperature: float = 0.1, max_tokens: int = 2048):
+    def __init__(self, model_name: str = "qwen3.5-plus", temperature: float = 0.1, max_tokens: int = 2048):
         """
         初始化生成集成模块
         Args:
@@ -54,31 +65,36 @@ class GenerationIntegrationModule:
         )
         logger.info("LLM初始化完成")
     
-    def query_router(self, query: str) -> str:
+    def analyze_query(self, query: str) -> QueryAnalysis:
         """
-        查询路由 - 根据查询类型选择不同的处理方式
+        合并查询路由和查询重写，减少一次 LLM 调用
         Args:
             query: 用户查询
         Returns:
-            路由类型 ('list', 'detail', 'general')
+            查询类型与检索用改写问题
         """
         prompt = ChatPromptTemplate.from_template("""
-根据用户的问题，将其分类为以下三种类型之一：
+你是一个校园知识库 RAG 查询分析助手。请一次性完成：
+1. 判断用户问题类型；
+2. 生成更适合检索的查询。
 
-1. 'list' - 用户想要获取文档列表或推荐，只需要文档标题
-   例如：有哪些学生管理规定、推荐几份期末安排、给我3个校园通知
+问题类型只能是以下三种之一：
+- list：用户想要获取文档列表、通知列表或推荐，只需要文档标题。
+- detail：用户想要具体办理方法、流程、条件、材料、时间、处罚或后果。
+- general：其他一般解释性问题。
 
-2. 'detail' - 用户想要具体办理方法、流程或详细信息
-   例如：学生请假超过三天怎么审批、缓考怎么申请、补办校园卡要哪些材料
+改写规则：
+- 必须保持原意，不要扩写成用户没有问到的内容。
+- 必须保留用户原始问题中的核心事件词、对象词和行为词。
+- 如果问题中出现“晚归”“校园卡”“缓考”“补考”“图书馆闭馆”“网络维护”“宿舍”“考试证件”等词，改写后必须保留。
+- list 类型问题不要改写，rewritten_query 直接返回原问题。
+- detail/general 类型可以补足缺失的对象、流程或条件，但保持简洁、通顺。
 
-3. 'general' - 其他一般性问题
-   例如：什么是请假管理办法、校园卡补办是什么意思、考试安排怎么看
-
-请只返回分类结果：list、detail 或 general
+请只返回 JSON，不要添加解释、Markdown 或多余文本：
+{{"route_type":"detail","rewritten_query":"学生晚归处理规定"}}
 
 用户问题: {query}
-
-分类结果:""")
+""")
 
         chain = (
             {"query": RunnablePassthrough()}
@@ -87,9 +103,52 @@ class GenerationIntegrationModule:
             | StrOutputParser()
         )
 
-        result = chain.invoke(query)
-        # 规范化路由类型
-        return self._normalize_route_type(result)
+        response = chain.invoke(query)
+        analysis = self._parse_query_analysis(response, query)
+
+        if analysis.rewritten_query != query:
+            logger.info("查询已重写: '%s' → '%s'", query, analysis.rewritten_query)
+        else:
+            logger.info("查询无需重写: '%s'", query)
+        return analysis
+
+    @classmethod
+    def _parse_query_analysis(cls, response: str, original_query: str) -> QueryAnalysis:
+        """
+        解析合并查询分析的 JSON 输出，失败时回退到原问题
+        Args:
+            response: 模型原始输出
+            original_query: 用户原始问题
+        Returns:
+            规范化后的 QueryAnalysis
+        """
+        payload = cls._extract_json_payload(response)
+        if payload is None:
+            return QueryAnalysis(route_type="general", rewritten_query=original_query)
+
+        route_type = cls._normalize_route_type(str(payload.get("route_type", "")))
+        rewritten_query = str(payload.get("rewritten_query") or "").strip()
+        if not rewritten_query or route_type == "list":
+            rewritten_query = original_query
+
+        return QueryAnalysis(route_type=route_type, rewritten_query=rewritten_query)
+
+    @staticmethod
+    def _extract_json_payload(response: str) -> Optional[Dict[str, Any]]:
+        """从模型输出中提取 JSON 对象"""
+        text = (response or "").strip()
+        if not text:
+            return None
+
+        object_match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not object_match:
+            return None
+
+        try:
+            payload = json.loads(object_match.group(0))
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
 
     @staticmethod
     def _normalize_route_type(result: str) -> str:
@@ -107,63 +166,6 @@ class GenerationIntegrationModule:
             if re.search(rf"(?<![a-z]){route_type}(?![a-z])", normalized):
                 return route_type
         return "general"
-
-    def query_rewrite(self, query: str) -> str:
-        """
-        智能查询重写 - 让大模型判断是否需要重写查询
-        Args:
-            query: 原始查询
-        Returns:
-            重写后的查询或原查询
-        """
-        prompt = PromptTemplate.from_template("""
-你是一个智能查询分析助手。请分析用户的查询，判断是否需要重写以提高校园文档检索效果。
-
-原始查询: {query}
-
-分析规则：
-1. **具体明确的查询**（直接返回原查询）：
-   - 包含具体文档标题：如"学生请假管理办法怎么规定"、"期末考试安排在哪里看"
-   - 明确的办理询问：如"校园卡补办需要什么材料"、"缓考申请的步骤"
-   - 具体的规则问题：如"请假超过三天谁审批"、"考试证件要带什么"
-
-2. **模糊不清的查询**（需要重写）：
-   - 过于宽泛：如"请假"、"考试"、"校园卡"
-   - 缺乏具体信息：如"管理办法"、"通知"、"流程"
-   - 口语化表达：如"怎么办"、"有什么要求"、"怎么弄"
-
-重写原则：
-- 保持原意不变
-- 增加相关校园文档检索术语
-- 优先补足问题中缺失的对象、流程或条件
-- 保持简洁性
-
-示例：
-- "请假" → "学生请假管理办法"
-- "有通知吗" → "校园通知公告"
-- "推荐个文件" → "校园文档推荐"
-- "校园卡" → "校园卡补办说明"
-- "学生请假超过三天需要谁审批" → "学生请假超过三天需要谁审批"（保持原查询）
-- "缓考申请的步骤" → "缓考申请的步骤"（保持原查询）
-
-请输出最终查询（如果不需要重写就返回原查询）:""")
-
-        chain = (
-            {"query": RunnablePassthrough()}
-            | prompt
-            | self.llm
-            | StrOutputParser()
-        )
-
-        response = chain.invoke(query).strip()
-
-        # 记录重写结果
-        if response != query:
-            logger.info(f"查询已重写: '{query}' → '{response}'")
-        else:
-            logger.info(f"查询无需重写: '{query}'")
-
-        return response
 
     def _build_context(self, parent_docs: List[Document], max_length: int = 2000) -> str:
         """

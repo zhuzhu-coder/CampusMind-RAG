@@ -1,0 +1,27 @@
+{
+  "summary": {
+    "case_count": 38,
+    "top_k": 3,
+    "strategies": ["vector", "bm25", "hybrid"]
+  },
+  "strategies": {
+    "vector": {
+      "hit_at_1": 0.8684,
+      "hit_at_3": 0.9737,
+      "mrr": 0.9167,
+      "keyword_coverage": 0.9342
+    },
+    "bm25": {
+      "hit_at_1": 0.8684,
+      "hit_at_3": 1.0,
+      "mrr": 0.9342,
+      "keyword_coverage": 0.9342
+    },
+    "hybrid": {
+      "hit_at_1": 0.9474,
+      "hit_at_3": 1.0,
+      "mrr": 0.9737,
+      "keyword_coverage": 0.9605
+    }
+  }
+}

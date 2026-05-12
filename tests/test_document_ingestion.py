@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from config import PROJECT_ROOT
+from campus_rag.config import PROJECT_ROOT
 from langchain_core.documents import Document
-from rag_modules import document_ingestion
-from rag_modules.document_ingestion import infer_doc_category, load_documents, load_pdf_document
+from campus_rag.pipeline import document_ingestion
+from campus_rag.pipeline.document_ingestion import infer_doc_category, load_documents, load_pdf_document
 
 
 def test_load_documents_returns_supported_file_types():
@@ -59,3 +59,4 @@ def test_load_pdf_document_uses_document_title_without_parent_section(monkeypatc
     assert [doc.metadata["doc_title"] for doc in docs] == ["学生手册", "学生手册"]
     assert [doc.metadata["page"] for doc in docs] == [1, 2]
     assert all("section" not in doc.metadata for doc in docs)
+

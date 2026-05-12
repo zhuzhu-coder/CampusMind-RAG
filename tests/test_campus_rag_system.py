@@ -1,11 +1,12 @@
 import os
 import builtins
+from types import SimpleNamespace
 
-from config import RAGConfig
+from campus_rag.config import RAGConfig
 from langchain_core.documents import Document
-from main import CampusRAGSystem
-from rag_modules import RAGResponse
-from rag_modules.document_ingestion import SUPPORTED_SUFFIXES
+from campus_rag.system import CampusRAGSystem
+from campus_rag.pipeline import RAGResponse
+from campus_rag.pipeline.document_ingestion import SUPPORTED_SUFFIXES
 
 
 class FakeVectorRetriever:
@@ -75,12 +76,11 @@ class FakeGenerationIntegrationModule:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.generated_docs = None
+        self.analysis_calls = []
 
-    def query_router(self, question):
-        return "detail"
-
-    def query_rewrite(self, question):
-        return question
+    def analyze_query(self, question):
+        self.analysis_calls.append(question)
+        return SimpleNamespace(route_type="detail", rewritten_query=question)
 
     def generate_step_by_step_answer(self, question, parent_docs):
         self.generated_docs = parent_docs
@@ -89,11 +89,11 @@ class FakeGenerationIntegrationModule:
 
 
 def test_campus_rag_system_runs_end_to_end_without_network(monkeypatch):
-    import main as main_module
+    import campus_rag.system as system_module
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
-    monkeypatch.setattr(main_module, "IndexConstructionModule", FakeIndexConstructionModule)
-    monkeypatch.setattr(main_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
+    monkeypatch.setattr(system_module, "IndexConstructionModule", FakeIndexConstructionModule)
+    monkeypatch.setattr(system_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
 
     config = RAGConfig(top_k=2, retrieval_candidate_k=4)
     system = CampusRAGSystem(config)
@@ -111,11 +111,11 @@ def test_campus_rag_system_runs_end_to_end_without_network(monkeypatch):
 
 
 def test_ask_question_can_return_structured_sources(monkeypatch):
-    import main as main_module
+    import campus_rag.system as system_module
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
-    monkeypatch.setattr(main_module, "IndexConstructionModule", FakeIndexConstructionModule)
-    monkeypatch.setattr(main_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
+    monkeypatch.setattr(system_module, "IndexConstructionModule", FakeIndexConstructionModule)
+    monkeypatch.setattr(system_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
 
     config = RAGConfig(top_k=2, retrieval_candidate_k=4)
     system = CampusRAGSystem(config)
@@ -145,12 +145,12 @@ def test_ask_question_can_return_structured_sources(monkeypatch):
     assert source.snippet
 
 
-def test_generation_uses_parent_docs_while_sources_keep_retrieved_chunks(monkeypatch):
-    import main as main_module
+def test_generation_uses_context_docs_while_sources_keep_retrieved_chunks(monkeypatch):
+    import campus_rag.system as system_module
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
-    monkeypatch.setattr(main_module, "IndexConstructionModule", FakeIndexConstructionModule)
-    monkeypatch.setattr(main_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
+    monkeypatch.setattr(system_module, "IndexConstructionModule", FakeIndexConstructionModule)
+    monkeypatch.setattr(system_module, "GenerationIntegrationModule", FakeGenerationIntegrationModule)
 
     config = RAGConfig(top_k=2, retrieval_candidate_k=4)
     system = CampusRAGSystem(config)
@@ -162,13 +162,146 @@ def test_generation_uses_parent_docs_while_sources_keep_retrieved_chunks(monkeyp
     generated_docs = system.generation_module.generated_docs
     assert generated_docs
     assert response.sources
-    assert all(doc.metadata.get("doc_type") == "parent" for doc in generated_docs)
+    assert all(doc.metadata.get("doc_type") == "context" for doc in generated_docs)
     assert all(source.chunk_index >= 0 for source in response.sources)
     assert {
         doc.metadata.get("doc_title") for doc in generated_docs
     } == {
         source.doc_title for source in response.sources
     }
+
+
+def test_ask_question_uses_context_window_documents_for_generation():
+    system = CampusRAGSystem.__new__(CampusRAGSystem)
+    system.config = RAGConfig(top_k=2, context_window_size=2)
+    retrieved_chunks = [
+        Document(
+            page_content="命中片段：晚归需要登记。",
+            metadata={
+                "parent_id": "parent-dorm",
+                "chunk_index": 1,
+                "rrf_score": 0.04,
+                "section": "晚归登记",
+            },
+        )
+    ]
+    context_docs = [
+        Document(
+            page_content="[片段 0]\n前文\n\n[片段 1]\n命中片段：晚归需要登记。\n\n[片段 2]\n后文",
+            metadata={
+                "parent_id": "parent-dorm",
+                "doc_title": "宿舍晚归登记说明",
+                "doc_category": "校园生活",
+                "department": "学生处",
+                "file_type": "md",
+                "source": "data/campus/life/dorm/宿舍晚归登记说明.md",
+                "doc_type": "context",
+                "context_window_size": 2,
+                "context_chunk_indices": [0, 1, 2],
+            },
+        )
+    ]
+
+    class FakeRetrievalModule:
+        def hybrid_search(self, query, top_k):
+            self.query = query
+            self.top_k = top_k
+            return retrieved_chunks
+
+    class FakeDataModule:
+        def get_context_documents(self, chunks, window_size):
+            self.received_chunks = chunks
+            self.received_window_size = window_size
+            return context_docs
+
+    class FakeGenerationModule:
+        def __init__(self):
+            self.generated_docs = None
+            self.analysis_calls = []
+
+        def analyze_query(self, question):
+            self.analysis_calls.append(question)
+            return SimpleNamespace(route_type="detail", rewritten_query="宿舍晚归处理规定")
+
+        def generate_step_by_step_answer(self, question, docs):
+            self.generated_docs = docs
+            return "基于证据窗口回答。[1]"
+
+    system.retrieval_module = FakeRetrievalModule()
+    system.data_module = FakeDataModule()
+    system.generation_module = FakeGenerationModule()
+
+    response = system.ask_question("晚归会怎么样", return_sources=True, return_trace=True)
+
+    assert system.generation_module.analysis_calls == ["晚归会怎么样"]
+    assert system.retrieval_module.query == "宿舍晚归处理规定"
+    assert system.data_module.received_chunks == retrieved_chunks
+    assert system.data_module.received_window_size == 2
+    assert system.generation_module.generated_docs == context_docs
+    assert response.rewritten_query == "宿舍晚归处理规定"
+    assert response.answer == "基于证据窗口回答。[1]"
+    assert response.sources[0].source_id == 1
+    assert response.sources[0].doc_title == "宿舍晚归登记说明"
+    assert response.trace.retrieval_strategy == "hybrid"
+    assert response.trace.filters == {}
+    assert set(response.trace.timings_ms) == {
+        "analysis",
+        "retrieval",
+        "context_build",
+        "generation",
+        "total",
+    }
+    assert all(value >= 0 for value in response.trace.timings_ms.values())
+    assert response.trace.retrieval_params == {
+        "top_k": 2,
+        "candidate_k": 10,
+        "rrf_k": 60,
+        "context_window_size": 2,
+    }
+    assert response.trace.retrieved_chunks == [
+        {
+            "rank": 1,
+            "doc_title": "未知文档",
+            "section": "晚归登记",
+            "chunk_index": 1,
+            "rrf_score": 0.04,
+        }
+    ]
+    assert response.trace.context_documents == [
+        {
+            "source_id": 1,
+            "doc_title": "宿舍晚归登记说明",
+            "context_window_size": 2,
+            "context_chunk_indices": [0, 1, 2],
+        }
+    ]
+    assert response.trace.source_count == 1
+
+
+def test_ask_question_returns_trace_for_empty_retrieval():
+    system = CampusRAGSystem.__new__(CampusRAGSystem)
+    system.config = RAGConfig(top_k=3)
+
+    class FakeRetrievalModule:
+        def hybrid_search(self, query, top_k):
+            return []
+
+    class FakeGenerationModule:
+        def analyze_query(self, question):
+            return SimpleNamespace(route_type="detail", rewritten_query=question)
+
+    system.retrieval_module = FakeRetrievalModule()
+    system.data_module = object()
+    system.generation_module = FakeGenerationModule()
+
+    response = system.ask_question("不存在的问题", return_sources=True, return_trace=True)
+
+    assert response.answer == "抱歉，没有找到相关的校园文档信息。请尝试其他标题或关键词。"
+    assert response.sources == []
+    assert response.trace.retrieval_strategy == "hybrid"
+    assert response.trace.retrieved_chunks == []
+    assert response.trace.context_documents == []
+    assert response.trace.source_count == 0
 
 
 def test_aligned_sources_keep_all_chunks_with_parent_doc_source_ids():
@@ -278,3 +411,4 @@ def test_interactive_eof_exits_with_clear_message(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert "输入流已结束" in output
+

@@ -1,4 +1,0 @@
-{"id":"campus_001","question":"学生请假超过三天需要谁审批？","expected_doc_titles":["学生请假管理办法"],"expected_keywords":["辅导员","学院"],"category":"regulations"}
-{"id":"campus_002","question":"期末考试期间如果要缓考，应该怎么做？","expected_doc_titles":["期末考试安排"],"expected_keywords":["缓考","教务系统"],"category":"teaching"}
-{"id":"campus_003","question":"校园卡补办需要准备什么材料？","expected_doc_titles":["校园卡补办说明"],"expected_keywords":["身份证","学生证"],"category":"life"}
-{"id":"campus_004","question":"考试期间需要随身携带什么证件？","expected_doc_titles":["期末考试安排"],"expected_keywords":["学生证"],"category":"teaching"}

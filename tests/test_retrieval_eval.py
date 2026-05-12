@@ -1,14 +1,17 @@
 from langchain_core.documents import Document
 
 from evals.run_retrieval_eval import (
+    DEFAULT_EVAL_SET,
+    DEFAULT_STRATEGIES,
     configure_utf8_stdio,
     _build_bm25_only_search_fn,
     evaluate_retrieval_cases,
     extract_doc_titles,
+    keyword_coverage,
     reciprocal_rank,
     load_eval_cases,
 )
-from config import RAGConfig
+from campus_rag.config import RAGConfig
 from pathlib import Path
 import json
 
@@ -30,17 +33,29 @@ def test_reciprocal_rank_returns_first_expected_doc_title():
     assert reciprocal_rank(ranked_doc_titles, ["不存在的文档"]) == 0.0
 
 
+def test_keyword_coverage_counts_expected_keywords_in_returned_docs():
+    docs = [
+        Document(page_content="校园卡补办需要身份证和学生证。", metadata={"doc_title": "校园卡补办说明"}),
+        Document(page_content="请到综合服务大厅办理。", metadata={"doc_title": "综合服务大厅办事指南"}),
+    ]
+
+    assert keyword_coverage(docs, ["身份证", "学生证", "照片"]) == 2 / 3
+    assert keyword_coverage(docs, []) == 0.0
+
+
 def test_evaluate_retrieval_cases_computes_strategy_metrics():
     cases = [
         {
             "id": "case-1",
             "question": "学生请假超过三天需要谁审批？",
             "expected_doc_titles": ["学生请假管理办法"],
+            "expected_keywords": ["辅导员", "学院"],
         },
         {
             "id": "case-2",
             "question": "校园卡补办需要什么材料？",
             "expected_doc_titles": ["校园卡补办说明"],
+            "expected_keywords": ["身份证", "学生证"],
         },
     ]
 
@@ -55,11 +70,11 @@ def test_evaluate_retrieval_cases_computes_strategy_metrics():
         },
         "hybrid": {
             "学生请假超过三天需要谁审批？": [
-                Document(page_content="# 学生请假管理办法\n请假审批", metadata={"doc_title": "学生请假管理办法"})
+                Document(page_content="# 学生请假管理办法\n辅导员和学院审批", metadata={"doc_title": "学生请假管理办法"})
             ],
             "校园卡补办需要什么材料？": [
                 Document(page_content="# 期末考试安排\n考试通知", metadata={"doc_title": "期末考试安排"}),
-                Document(page_content="# 校园卡补办说明\n补办流程", metadata={"doc_title": "校园卡补办说明"}),
+                Document(page_content="# 校园卡补办说明\n身份证和学生证", metadata={"doc_title": "校园卡补办说明"}),
             ],
         },
     }
@@ -78,12 +93,27 @@ def test_evaluate_retrieval_cases_computes_strategy_metrics():
     assert report["strategies"]["vector"]["hit_at_1"] == 0.5
     assert report["strategies"]["vector"]["hit_at_3"] == 0.5
     assert report["strategies"]["vector"]["mrr"] == 0.5
+    assert report["strategies"]["vector"]["keyword_coverage"] == 0.0
     assert report["strategies"]["hybrid"]["hit_at_1"] == 0.5
     assert report["strategies"]["hybrid"]["hit_at_3"] == 1.0
     assert report["strategies"]["hybrid"]["mrr"] == 0.75
+    assert report["strategies"]["hybrid"]["keyword_coverage"] == 1.0
     assert report["cases"][1]["results"]["hybrid"]["ranked_doc_titles"] == ["期末考试安排", "校园卡补办说明"]
+    assert report["cases"][1]["results"]["hybrid"]["keyword_coverage"] == 1.0
     assert "expected_dishes" not in report["cases"][0]
     assert "ranked_dishes" not in report["cases"][1]["results"]["hybrid"]
+
+
+def test_default_eval_set_has_expanded_campus_schema():
+    cases = load_eval_cases(DEFAULT_EVAL_SET)
+
+    assert len(cases) >= 30
+    assert set(DEFAULT_STRATEGIES) == {"vector", "bm25", "hybrid"}
+    for case in cases:
+        assert case["expected_doc_titles"]
+        assert case["expected_keywords"]
+        assert case["category"] in {"regulations", "teaching", "life", "notices"}
+        assert case["query_type"] in {"precise", "fuzzy", "procedure", "list"}
 
 
 def test_load_eval_cases_rejects_legacy_expected_dishes_field(tmp_path):
@@ -134,3 +164,4 @@ def test_build_bm25_only_search_fn_does_not_require_dashscope_api_key(monkeypatc
 
     assert docs
     assert docs[0].metadata["doc_title"] == "学生请假管理办法"
+

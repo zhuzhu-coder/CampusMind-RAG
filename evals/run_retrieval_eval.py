@@ -7,20 +7,14 @@ RAG检索评估入口
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List
 
-# 导入项目根目录
-CODE_DIR = Path(__file__).resolve().parents[1]
-if str(CODE_DIR) not in sys.path:
-    sys.path.append(str(CODE_DIR))
-
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
-from config import RAGConfig
-from rag_modules.data_preparation import DataPreparationModule
-from rag_modules.retrieval_optimization import tokenize_chinese_text
+from campus_rag.config import RAGConfig
+from campus_rag.pipeline.data_preparation import DataPreparationModule
+from campus_rag.pipeline.retrieval_optimization import tokenize_chinese_text
 
 # 默认评估集文件路径
 DEFAULT_EVAL_SET = Path(__file__).resolve().with_name("campus_smoke_eval_set.jsonl")
@@ -28,8 +22,12 @@ DEFAULT_EVAL_SET = Path(__file__).resolve().with_name("campus_smoke_eval_set.jso
 DEFAULT_STRATEGIES = ("vector", "bm25", "hybrid")
 
 
-def configure_utf8_stdio(stdout=sys.stdout, stderr=sys.stderr):
+def configure_utf8_stdio(stdout=None, stderr=None):
     """将标准输出和标准错误流配置为 UTF-8 编码"""
+    import sys
+
+    stdout = stdout or sys.stdout
+    stderr = stderr or sys.stderr
     for stream in (stdout, stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure:
@@ -92,6 +90,18 @@ def reciprocal_rank(ranked_doc_titles: List[str], expected_doc_titles: List[str]
     return 0.0
 
 
+def keyword_coverage(docs: Iterable[Document], expected_keywords: List[str]) -> float:
+    """
+    计算检索结果正文对 expected_keywords 的覆盖率
+    """
+    if not expected_keywords:
+        return 0.0
+
+    combined_text = "\n".join(doc.page_content or "" for doc in docs)
+    matched_count = sum(1 for keyword in expected_keywords if keyword in combined_text)
+    return matched_count / len(expected_keywords)
+
+
 def _hit_at(ranked_doc_titles: List[str], expected_doc_titles: List[str], k: int) -> float:
     """计算 hit@k 指标"""
     expected = set(expected_doc_titles)
@@ -109,7 +119,7 @@ def evaluate_retrieval_cases(
     """
     strategies = list(strategies)
     metric_sums = {
-        strategy: {"hit_at_1": 0.0, f"hit_at_{top_k}": 0.0, "mrr": 0.0}
+        strategy: {"hit_at_1": 0.0, f"hit_at_{top_k}": 0.0, "mrr": 0.0, "keyword_coverage": 0.0}
         for strategy in strategies
     }
     case_reports = []
@@ -117,10 +127,12 @@ def evaluate_retrieval_cases(
     for case in cases:
         question = case["question"]
         expected_doc_titles = case["expected_doc_titles"]
+        expected_keywords = case.get("expected_keywords", [])
         case_report = {
             "id": case["id"],
             "question": question,
             "expected_doc_titles": expected_doc_titles,
+            "expected_keywords": expected_keywords,
             "results": {},
         }
 
@@ -130,15 +142,18 @@ def evaluate_retrieval_cases(
             hit_at_1 = _hit_at(ranked_doc_titles, expected_doc_titles, 1)
             hit_at_k = _hit_at(ranked_doc_titles, expected_doc_titles, top_k)
             mrr = reciprocal_rank(ranked_doc_titles, expected_doc_titles)
+            coverage = keyword_coverage(docs, expected_keywords)
 
             metric_sums[strategy]["hit_at_1"] += hit_at_1
             metric_sums[strategy][f"hit_at_{top_k}"] += hit_at_k
             metric_sums[strategy]["mrr"] += mrr
+            metric_sums[strategy]["keyword_coverage"] += coverage
             case_report["results"][strategy] = {
                 "ranked_doc_titles": ranked_doc_titles,
                 "hit_at_1": hit_at_1,
                 f"hit_at_{top_k}": hit_at_k,
                 "mrr": mrr,
+                "keyword_coverage": coverage,
             }
 
         case_reports.append(case_report)
@@ -206,7 +221,7 @@ def _build_full_search_fn(config: RAGConfig):
     """
     构建需要完整 RAG 系统的检索函数
     """
-    from main import CampusRAGSystem
+    from campus_rag.system import CampusRAGSystem
 
     system = CampusRAGSystem(config)
     system.initialize_system()
@@ -226,7 +241,8 @@ def print_report(report: Dict[str, Any]):
             f"- {strategy}: "
             f"hit@1={metrics['hit_at_1']:.4f}, "
             f"hit@{top_k}={metrics[f'hit_at_{top_k}']:.4f}, "
-            f"mrr={metrics['mrr']:.4f}"
+            f"mrr={metrics['mrr']:.4f}, "
+            f"keyword_coverage={metrics['keyword_coverage']:.4f}"
         )
 
     print("\n逐题结果:")
@@ -238,7 +254,8 @@ def print_report(report: Dict[str, Any]):
             print(
                 f"  {strategy}: hit@1={result['hit_at_1']:.0f}, "
                 f"hit@{top_k}={result[f'hit_at_{top_k}']:.0f}, "
-                f"mrr={result['mrr']:.4f}, ranked=[{ranked}]"
+                f"mrr={result['mrr']:.4f}, "
+                f"keyword_coverage={result['keyword_coverage']:.4f}, ranked=[{ranked}]"
             )
 
 

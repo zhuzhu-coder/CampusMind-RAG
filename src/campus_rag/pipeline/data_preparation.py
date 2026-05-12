@@ -5,7 +5,7 @@
 import hashlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
@@ -313,22 +313,35 @@ class DataPreparationModule:
         raw_id = f"{parent_id}:{chunk_index}"
         return hashlib.md5(raw_id.encode("utf-8")).hexdigest()
 
-    def get_parent_documents(self, retrieved_chunks: List[Document]) -> List[Document]:
+    def get_context_documents(self, retrieved_chunks: List[Document], window_size: int = 1) -> List[Document]:
         """
-        根据检索召回的文档块获取对应的父文档（智能去重）
+        根据命中的子块构建用于生成回答的证据窗口文档
+        子块负责召回，生成阶段只回填命中块及其相邻块，避免把完整父文档塞进上下文
         Args:
             retrieved_chunks: 检索到的文档块列表
+            window_size: 每个命中块前后回填的相邻块数量
         Returns:
-            对应的父文档列表（去重，按最强召回证据排序）
+            按父文档聚合后的证据上下文文档列表
         """
-        # 父文档命中信息
+        if not retrieved_chunks:
+            return []
+
+        try:
+            context_window = max(0, int(window_size))
+        except (TypeError, ValueError):
+            context_window = 1
+        # 按 parent_id 和 chunk_index 建立的子块查找表
+        chunks_by_parent = self._build_chunks_by_parent()
+        # 父文档的召回强度信息
         parent_rank_info: Dict[str, Dict[str, Any]] = {}
-        # 父文档映射
-        parent_docs_map: Dict[str, Document] = {}
+        # 父文档的命中块索引
+        selected_indices_by_parent: Dict[str, Set[int]] = {}
+        # 父文档的兜底块
+        fallback_chunks_by_parent: Dict[str, List[Document]] = {}
 
         for chunk_rank, chunk in enumerate(retrieved_chunks):
             chunk_metadata = chunk.metadata or {}
-            # 从 chunk metadata 中获取父文档ID
+            # 从 chunk 元数据中获取父文档ID
             parent_id = chunk_metadata.get("parent_id")
             if not parent_id:
                 continue
@@ -342,7 +355,7 @@ class DataPreparationModule:
             if parent_id not in parent_rank_info:
                 parent_rank_info[parent_id] = {
                     "first_rank": chunk_rank, # 第一个命中块的排名
-                    "best_score": chunk_score,# 最佳命中块的RRF分数
+                    "best_score": chunk_score, # 最佳命中块的RRF分数
                     "hit_count": 1, # 命中次数
                 }
             else:
@@ -350,19 +363,25 @@ class DataPreparationModule:
                 rank_info["hit_count"] += 1
                 rank_info["first_rank"] = min(rank_info["first_rank"], chunk_rank)
                 rank_info["best_score"] = max(rank_info["best_score"], chunk_score)
-            # 找完整父文档对象
-            if parent_id not in parent_docs_map:
-                # 先从缓存父文档映射中查找
-                parent_doc = self.parent_documents_map.get(parent_id)
-                if parent_doc is not None:
-                    parent_docs_map[parent_id] = parent_doc
-                    continue
-                # 如果缓存中没有，再从所有文档中查找
-                for candidate in self.documents:
-                    if candidate.metadata.get("parent_id") == parent_id:
-                        parent_docs_map[parent_id] = candidate
-                        break
-        # 将父文档按第一个命中块的排名、最佳命中块的RRF分数、命中次数排序
+            
+            chunk_index = self._safe_chunk_index(chunk_metadata.get("chunk_index"))
+            # 如果 chunk_index 无效，将该块添加到兜底块列表
+            if chunk_index is None:
+                fallback_chunks_by_parent.setdefault(parent_id, []).append(chunk)
+                continue
+            # 获取父文档的子块查找表
+            parent_chunks = chunks_by_parent.setdefault(parent_id, {})
+            # 将当前块添加到父文档的子块查找表中
+            parent_chunks.setdefault(chunk_index, chunk)
+            # 将当前块的索引添加到父文档的命中块索引中
+            selected_indices = selected_indices_by_parent.setdefault(parent_id, set())
+
+            # 将当前块的相邻块索引添加到父文档的命中块索引中
+            for context_index in range(chunk_index - context_window, chunk_index + context_window + 1):
+                if context_index in parent_chunks:
+                    selected_indices.add(context_index)
+
+        # 按照第一个命中块的排名、最佳命中块的RRF分数、命中次数对父文档进行排序
         sorted_parent_ids = sorted(
             parent_rank_info.keys(),
             key=lambda parent_id: (
@@ -372,26 +391,120 @@ class DataPreparationModule:
             ),
         )
 
-        parent_docs = []
+        # 构建证据上下文文档
+        context_docs: List[Document] = []
         for parent_id in sorted_parent_ids:
-            if parent_id in parent_docs_map:
-                parent_docs.append(parent_docs_map[parent_id])
+            # 获取父文档的子块查找表
+            parent_chunks = chunks_by_parent.get(parent_id, {})
+            # 获取父文档的命中块索引
+            selected_indices = sorted(selected_indices_by_parent.get(parent_id, set()))
+            # 从父文档的子块查找表中获取命中块及其相邻块
+            context_chunks = [parent_chunks[index] for index in selected_indices if index in parent_chunks]
 
-        parent_info = []
-        for parent_doc in parent_docs:
-            doc_title = parent_doc.metadata.get("doc_title") or parent_doc.metadata.get("source_name", "未知文档")
-            parent_id = parent_doc.metadata.get("parent_id")
-            rank_info = parent_rank_info.get(parent_id, {})
-            relevance_count = rank_info.get("hit_count", 0)
-            parent_info.append(f"{doc_title}({relevance_count}块)")
+            if not context_chunks:
+                context_chunks = fallback_chunks_by_parent.get(parent_id, [])
+
+            if not context_chunks:
+                continue
+
+            page_content = "\n\n".join(
+                self._format_context_chunk(chunk)
+                for chunk in context_chunks
+            )
+            metadata = self._build_context_metadata(parent_id, context_chunks, selected_indices, context_window)
+            context_docs.append(Document(page_content=page_content, metadata=metadata))
 
         logger.info(
-            "从 %s 个文档块中找到 %s 个去重父文档: %s",
+            "从 %s 个召回块构建 %s 个证据上下文文档，窗口大小=%s",
             len(retrieved_chunks),
-            len(parent_docs),
-            ", ".join(parent_info),
+            len(context_docs),
+            context_window,
         )
-        return parent_docs
+        return context_docs
+
+    def _build_chunks_by_parent(self) -> Dict[str, Dict[int, Document]]:
+        """
+        按 parent_id 和 chunk_index 建立子块查找表
+        Args:
+            None
+        Returns:
+            按 parent_id 和 chunk_index 建立的子块查找表，键为 parent_id，值为一个字典，键为 chunk_index，值为对应的证据块
+        """
+        chunks_by_parent: Dict[str, Dict[int, Document]] = {}
+        for chunk in self.chunks:
+            metadata = chunk.metadata or {}
+            parent_id = metadata.get("parent_id")
+            chunk_index = self._safe_chunk_index(metadata.get("chunk_index"))
+            if parent_id is None or chunk_index is None:
+                continue
+            chunks_by_parent.setdefault(parent_id, {})[chunk_index] = chunk
+        return chunks_by_parent
+
+    def _build_context_metadata(
+        self,
+        parent_id: str,
+        context_chunks: List[Document],
+        selected_indices: List[int],
+        context_window: int,
+    ) -> Dict[str, Any]:
+        """
+        构建证据上下文文档的父文档级元数据
+        Args:
+            parent_id: 父文档 ID
+            context_chunks: 包含证据块的列表，每个块包含元数据
+            selected_indices: 命中块的索引列表
+            context_window: 上下文窗口大小，用于回填相邻块
+        Returns:
+            元数据字典，包含父文档的元数据和上下文块的元数据
+        """
+        parent_doc = self._find_parent_document(parent_id)
+        metadata = dict(parent_doc.metadata or {}) if parent_doc is not None else {}
+        first_chunk_metadata = dict(context_chunks[0].metadata or {})
+        # 从第一个命中块的元数据补充缺失的元数据
+        for key in ("doc_title", "doc_category", "department", "file_type", "source", "relative_path", "page"):
+            if metadata.get(key) is None and first_chunk_metadata.get(key) is not None:
+                metadata[key] = first_chunk_metadata[key]
+
+        metadata["parent_id"] = parent_id
+        metadata["doc_id"] = metadata.get("doc_id") or first_chunk_metadata.get("doc_id") or parent_id
+        metadata["doc_title"] = metadata.get("doc_title", "未知文档")
+        metadata["doc_category"] = metadata.get("doc_category", "其他")
+        metadata["department"] = metadata.get("department", "")
+        metadata["file_type"] = metadata.get("file_type", "")
+        metadata["source"] = metadata.get("source", "")
+        metadata["doc_type"] = "context"
+        metadata["context_window_size"] = context_window
+        metadata["context_chunk_indices"] = selected_indices
+        metadata.pop("section", None)
+        return metadata
+
+    def _find_parent_document(self, parent_id: str) -> Optional[Document]:
+        """根据 parent_id 查找完整父文档，仅用于继承元数据"""
+        parent_doc = self.parent_documents_map.get(parent_id)
+        if parent_doc is not None:
+            return parent_doc
+
+        for candidate in self.documents:
+            if (candidate.metadata or {}).get("parent_id") == parent_id:
+                return candidate
+
+        return None
+
+    @staticmethod
+    def _format_context_chunk(chunk: Document) -> str:
+        """格式化单个证据块，保留块序号便于定位"""
+        metadata = chunk.metadata or {}
+        chunk_index = metadata.get("chunk_index")
+        label = f"片段 {chunk_index}" if chunk_index is not None else "片段"
+        return f"[{label}]\n{chunk.page_content}"
+
+    @staticmethod
+    def _safe_chunk_index(value: Any) -> Optional[int]:
+        """安全转换 chunk_index"""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def get_statistics(self) -> Dict[str, Any]:
         """

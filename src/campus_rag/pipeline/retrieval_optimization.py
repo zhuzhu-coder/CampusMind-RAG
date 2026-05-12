@@ -53,17 +53,19 @@ def _get_jieba_cut_for_search():
 class RetrievalOptimizationModule:
     """检索优化模块 - 负责混合检索和过滤"""
     
-    def __init__(self, vectorstore: FAISS, chunks: List[Document], candidate_k: int = 10):
+    def __init__(self, vectorstore: FAISS, chunks: List[Document], candidate_k: int = 10, rrf_k: int = 60):
         """
         初始化检索优化模块
         Args:
             vectorstore: FAISS向量存储
             chunks: 文档块列表
             candidate_k: 每个检索器返回的候选文档块数量
+            rrf_k: RRF 平滑参数
         """
         self.vectorstore = vectorstore
         self.chunks = chunks
         self.candidate_k = candidate_k
+        self.rrf_k = rrf_k
         self._setup_retrievers()
 
     def _setup_retrievers(self):
@@ -168,7 +170,7 @@ class RetrievalOptimizationModule:
         # 使用RRF重排
         return self._rrf_rerank(vector_chunks, bm25_chunks)[:top_k]
 
-    def _rrf_rerank(self, vector_chunks: List[Document], bm25_chunks: List[Document], k: int = 60) -> List[Document]:
+    def _rrf_rerank(self, vector_chunks: List[Document], bm25_chunks: List[Document], k: int | None = None) -> List[Document]:
         """
         使用RRF (Reciprocal Rank Fusion) 算法重排文档块
         Args:
@@ -178,6 +180,7 @@ class RetrievalOptimizationModule:
         Returns:
             重排后的文档块列表
         """
+        rrf_k = int(k if k is not None else getattr(self, "rrf_k", 60))
         chunk_scores = {} # 文档块RRF分数映射
         chunk_objects = {} # 文档块对象映射
 
@@ -189,7 +192,7 @@ class RetrievalOptimizationModule:
             chunk_objects[chunk_key] = chunk
 
             # RRF公式: 1 / (k + rank)
-            rrf_score = 1.0 / (k + rank + 1)
+            rrf_score = 1.0 / (rrf_k + rank + 1)
             # 累加RRF分数
             chunk_scores[chunk_key] = chunk_scores.get(chunk_key, 0) + rrf_score
 
@@ -200,7 +203,7 @@ class RetrievalOptimizationModule:
             chunk_key = self._chunk_key(chunk)
             chunk_objects[chunk_key] = chunk
 
-            rrf_score = 1.0 / (k + rank + 1)
+            rrf_score = 1.0 / (rrf_k + rank + 1)
             chunk_scores[chunk_key] = chunk_scores.get(chunk_key, 0) + rrf_score
 
             logger.debug(f"BM25检索 - 文档块{rank+1}: RRF分数 = {rrf_score:.4f}")

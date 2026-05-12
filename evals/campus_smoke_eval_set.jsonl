@@ -1,0 +1,38 @@
+{"id":"campus_001","question":"学生请假超过三天需要谁审批？","expected_doc_titles":["学生请假管理办法"],"expected_keywords":["辅导员","学院"],"category":"regulations","query_type":"precise"}
+{"id":"campus_002","question":"请假一天以内是谁审批？","expected_doc_titles":["学生请假管理办法"],"expected_keywords":["1天以内","辅导员审批"],"category":"regulations","query_type":"precise"}
+{"id":"campus_003","question":"考试周请假需要先和谁沟通？","expected_doc_titles":["学生请假管理办法"],"expected_keywords":["考试周","任课教师"],"category":"regulations","query_type":"procedure"}
+{"id":"campus_004","question":"学生事务通用性文件适用于哪些事项？","expected_doc_titles":["本科生学生事务管理办法"],"expected_keywords":["学籍","证明开具"],"category":"regulations","query_type":"fuzzy"}
+{"id":"campus_005","question":"联系方式变了应该在哪里更新？","expected_doc_titles":["本科生学生事务管理办法"],"expected_keywords":["联系方式","系统内更新"],"category":"regulations","query_type":"procedure"}
+{"id":"campus_006","question":"国家奖学金申请材料包括哪些？","expected_doc_titles":["本科生国家奖学金评审实施细则"],"expected_keywords":["申请表","成绩单","获奖证明"],"category":"regulations","query_type":"precise"}
+{"id":"campus_007","question":"国家奖学金评审坚持什么原则？","expected_doc_titles":["本科生国家奖学金评审实施细则"],"expected_keywords":["公开","公平","公正"],"category":"regulations","query_type":"precise"}
+{"id":"campus_008","question":"家庭经济困难学生认定流程是什么？","expected_doc_titles":["家庭经济困难学生认定工作流程"],"expected_keywords":["学生申请","班级评议","学院审核","学校复核"],"category":"regulations","query_type":"procedure"}
+{"id":"campus_009","question":"困难认定材料不完整会怎么样？","expected_doc_titles":["家庭经济困难学生认定工作流程"],"expected_keywords":["证明不完整","不进入本次认定"],"category":"regulations","query_type":"precise"}
+{"id":"campus_010","question":"奖助学金材料哪些地方不能漏签字？","expected_doc_titles":["奖助学金材料提醒"],"expected_keywords":["本人","辅导员","学院意见栏"],"category":"regulations","query_type":"precise"}
+{"id":"campus_011","question":"奖助学金材料涂改了怎么办？","expected_doc_titles":["奖助学金材料提醒"],"expected_keywords":["盖章确认","重新打印"],"category":"regulations","query_type":"procedure"}
+{"id":"campus_012","question":"期末考试期间如果要缓考，应该怎么做？","expected_doc_titles":["期末考试安排","缓考与补考办理说明"],"expected_keywords":["缓考","教务系统"],"category":"teaching","query_type":"procedure"}
+{"id":"campus_013","question":"考试当天需要携带什么证件？","expected_doc_titles":["期末考试安排","2025-2026学年第一学期期末考试工作安排"],"expected_keywords":["学生证","校园卡"],"category":"teaching","query_type":"precise"}
+{"id":"campus_014","question":"期末考试迟到多久按缺考处理？","expected_doc_titles":["期末考试安排","2025-2026学年第一学期期末考试工作安排"],"expected_keywords":["迟到 20 分钟","缺考"],"category":"teaching","query_type":"precise"}
+{"id":"campus_015","question":"期末考试考场和座位信息在哪里看？","expected_doc_titles":["期末考试安排"],"expected_keywords":["教务处","系统","考场","座位"],"category":"teaching","query_type":"fuzzy"}
+{"id":"campus_016","question":"缓考申请只发微信算不算正式申请？","expected_doc_titles":["缓考申请补充说明","缓考与补考办理说明"],"expected_keywords":["只发微信","不算正式申请"],"category":"teaching","query_type":"precise"}
+{"id":"campus_017","question":"缓考和补考办理流程是什么？","expected_doc_titles":["缓考与补考办理说明"],"expected_keywords":["教务系统","证明材料","审核通过"],"category":"teaching","query_type":"procedure"}
+{"id":"campus_018","question":"补考安排由谁通知？","expected_doc_titles":["缓考与补考办理说明"],"expected_keywords":["教务部门","统一通知"],"category":"teaching","query_type":"precise"}
+{"id":"campus_019","question":"课程重修一般因为什么情况办理？","expected_doc_titles":["课程重修与补修说明"],"expected_keywords":["课程不及格","培养方案调整","学分不足"],"category":"teaching","query_type":"precise"}
+{"id":"campus_020","question":"转专业学生没修完先修课怎么办？","expected_doc_titles":["课程重修与补修说明"],"expected_keywords":["转专业","补修","先修课程"],"category":"teaching","query_type":"fuzzy"}
+{"id":"campus_021","question":"校园卡补办需要准备什么材料？","expected_doc_titles":["校园卡补办说明"],"expected_keywords":["学生证","身份证"],"category":"life","query_type":"precise"}
+{"id":"campus_022","question":"校园卡丢了第一步应该做什么？","expected_doc_titles":["校园卡补办说明"],"expected_keywords":["第一时间挂失","综合服务大厅"],"category":"life","query_type":"procedure"}
+{"id":"campus_023","question":"校园卡补办在哪里办理？","expected_doc_titles":["校园卡补办说明"],"expected_keywords":["综合服务大厅","一楼 3 号窗口"],"category":"life","query_type":"precise"}
+{"id":"campus_024","question":"综合服务大厅可以办理哪些学生业务？","expected_doc_titles":["综合服务大厅办事指南"],"expected_keywords":["校园卡","证明开具","信息修改"],"category":"life","query_type":"list"}
+{"id":"campus_025","question":"综合服务大厅工作日办理时间是什么？","expected_doc_titles":["综合服务大厅办事指南"],"expected_keywords":["8:30-12:00","14:00-17:00"],"category":"life","query_type":"precise"}
+{"id":"campus_026","question":"宿舍 23 点后晚归怎么登记？","expected_doc_titles":["宿舍晚归登记说明"],"expected_keywords":["23:00","门禁处刷卡","值班宿管"],"category":"life","query_type":"procedure"}
+{"id":"campus_027","question":"哪些晚归情况需要补充说明？","expected_doc_titles":["宿舍晚归登记说明"],"expected_keywords":["实习","社团活动","医院就诊"],"category":"life","query_type":"list"}
+{"id":"campus_028","question":"宿舍内禁止使用哪些违规电器？","expected_doc_titles":["宿舍违规电器管理规定"],"expected_keywords":["电热锅","电磁炉","电暖器"],"category":"life","query_type":"precise"}
+{"id":"campus_029","question":"因实验需要使用特殊电器应该怎么办？","expected_doc_titles":["宿舍违规电器管理规定"],"expected_keywords":["课程设计","实验","学院","宿管"],"category":"life","query_type":"procedure"}
+{"id":"campus_030","question":"连续晚归会反馈给谁？","expected_doc_titles":["宿舍安全与晚归管理规定","宿舍晚归登记说明"],"expected_keywords":["连续晚归","辅导员"],"category":"life","query_type":"precise"}
+{"id":"campus_031","question":"校园网维护期间哪些区域可能短时中断？","expected_doc_titles":["关于校园网例行维护的通知","关于校园网维护的通知","校园网临时维护通知"],"expected_keywords":["宿舍区","无线网络","短时中断"],"category":"notices","query_type":"precise"}
+{"id":"campus_032","question":"校园网维护时间是什么时候？","expected_doc_titles":["关于校园网例行维护的通知","关于校园网维护的通知","校园网临时维护通知"],"expected_keywords":["本周六凌晨","0:30","2:00"],"category":"notices","query_type":"precise"}
+{"id":"campus_033","question":"校园门户维护会影响哪些功能？","expected_doc_titles":["校园门户升级维护通知"],"expected_keywords":["门户登录","密码修改","表单提交"],"category":"notices","query_type":"precise"}
+{"id":"campus_034","question":"图书馆临时闭馆时借还书怎么办？","expected_doc_titles":["图书馆临时闭馆通知"],"expected_keywords":["一楼服务台","电子资源"],"category":"notices","query_type":"procedure"}
+{"id":"campus_035","question":"图书馆周五临时闭馆到几点？","expected_doc_titles":["图书馆临时闭馆通知"],"expected_keywords":["周五","17:00","20:00"],"category":"notices","query_type":"precise"}
+{"id":"campus_036","question":"图书馆座位预约后不签到会怎样？","expected_doc_titles":["图书馆座位预约与占座提醒"],"expected_keywords":["未签到","自动释放"],"category":"notices","query_type":"precise"}
+{"id":"campus_037","question":"考试周自习室开放到几点？","expected_doc_titles":["考试周自习室开放安排","考试周自习室开放说明"],"expected_keywords":["考试周","23:30"],"category":"notices","query_type":"precise"}
+{"id":"campus_038","question":"考试周自习室座位满了可以去哪？","expected_doc_titles":["考试周自习室开放说明"],"expected_keywords":["四楼公共自习区","教学楼备用自习室"],"category":"notices","query_type":"fuzzy"}

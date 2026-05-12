@@ -28,6 +28,23 @@ class RetrievedSource:
 
 
 @dataclass(frozen=True)
+class RAGTrace:
+    """RAG 查询链路调试信息"""
+
+    retrieval_strategy: str # 实际使用的检索策略
+    filters: Dict[str, Any] # 显式元数据过滤条件
+    timings_ms: Dict[str, float] # 各阶段耗时，单位毫秒
+    retrieval_params: Dict[str, Any] # 检索与上下文参数
+    retrieved_chunks: List[Dict[str, Any]] # 原始召回块摘要
+    context_documents: List[Dict[str, Any]] # 证据窗口文档摘要
+    source_count: int # 结构化来源数量
+
+    def to_dict(self) -> Dict[str, Any]:
+        """将 RAGTrace 对象转换为字典"""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class RAGResponse:
     """完整RAG响应"""
 
@@ -36,10 +53,11 @@ class RAGResponse:
     rewritten_query: str # 重写后的问题
     answer: str # 最终答案
     sources: List[RetrievedSource] # 与答案引用编号对齐的召回文档块列表
+    trace: Optional[RAGTrace] = None # 可选调试链路
 
     def to_dict(self) -> Dict[str, Any]:
         """将 RAGResponse 对象转换为字典"""
-        return {
+        payload = {
             "question": self.question,
             "route_type": self.route_type,
             "rewritten_query": self.rewritten_query,
@@ -47,3 +65,6 @@ class RAGResponse:
             # 将对齐后的召回文档块列表转换为字典列表
             "sources": [source.to_dict() for source in self.sources],
         }
+        if self.trace is not None:
+            payload["trace"] = self.trace.to_dict()
+        return payload

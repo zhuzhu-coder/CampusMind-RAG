@@ -27,13 +27,13 @@ def _install_openai_stub(monkeypatch):
 def _reload_module(monkeypatch, module_name):
     _install_openai_stub(monkeypatch)
     for name in list(sys.modules):
-        if name == "rag_modules" or name.startswith("rag_modules."):
+        if name == "campus_rag.pipeline" or name.startswith("campus_rag.pipeline."):
             monkeypatch.delitem(sys.modules, name, raising=False)
     return importlib.import_module(module_name)
 
 
 def test_build_context_truncates_long_first_document_instead_of_dropping_it(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
@@ -49,7 +49,7 @@ def test_build_context_truncates_long_first_document_instead_of_dropping_it(monk
 
 
 def test_build_context_labels_parent_documents_with_citation_numbers(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
@@ -70,7 +70,7 @@ def test_build_context_labels_parent_documents_with_citation_numbers(monkeypatch
 
 
 def test_build_context_does_not_fall_back_to_legacy_domain_fields(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
@@ -84,7 +84,7 @@ def test_build_context_does_not_fall_back_to_legacy_domain_fields(monkeypatch):
 
 
 def test_grounded_answer_rules_require_citations_and_no_hallucination(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
 
     rules = module.GenerationIntegrationModule._grounded_answer_rules()
 
@@ -98,7 +98,7 @@ def test_grounded_answer_rules_require_citations_and_no_hallucination(monkeypatc
 
 
 def test_normalize_route_type_handles_model_wrapped_outputs(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
 
     assert module.GenerationIntegrationModule._normalize_route_type("detail") == "detail"
     assert module.GenerationIntegrationModule._normalize_route_type("分类结果：list。") == "list"
@@ -106,8 +106,69 @@ def test_normalize_route_type_handles_model_wrapped_outputs(monkeypatch):
     assert module.GenerationIntegrationModule._normalize_route_type("无法判断") == "general"
 
 
+def test_parse_query_analysis_handles_plain_json(monkeypatch):
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
+
+    analysis = module.GenerationIntegrationModule._parse_query_analysis(
+        '{"route_type":"detail","rewritten_query":"学生晚归处理规定"}',
+        "我晚归了会怎么样",
+    )
+
+    assert analysis == module.QueryAnalysis(
+        route_type="detail",
+        rewritten_query="学生晚归处理规定",
+    )
+
+
+def test_parse_query_analysis_handles_fenced_json(monkeypatch):
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
+
+    analysis = module.GenerationIntegrationModule._parse_query_analysis(
+        '```json\n{"route_type":"general","rewritten_query":"校园卡补办第一步"}\n```',
+        "校园卡丢了第一步怎么办",
+    )
+
+    assert analysis.route_type == "general"
+    assert analysis.rewritten_query == "校园卡补办第一步"
+
+
+def test_parse_query_analysis_falls_back_to_original_query_when_json_is_invalid(monkeypatch):
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
+
+    analysis = module.GenerationIntegrationModule._parse_query_analysis(
+        "分类结果可能是 detail，但没有返回 JSON",
+        "我晚归了会怎么样",
+    )
+
+    assert analysis == module.QueryAnalysis(
+        route_type="general",
+        rewritten_query="我晚归了会怎么样",
+    )
+
+
+def test_parse_query_analysis_keeps_list_query_original(monkeypatch):
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
+
+    analysis = module.GenerationIntegrationModule._parse_query_analysis(
+        '{"route_type":"list","rewritten_query":"校园通知公告"}',
+        "有哪些校园通知",
+    )
+
+    assert analysis == module.QueryAnalysis(
+        route_type="list",
+        rewritten_query="有哪些校园通知",
+    )
+
+
+def test_generation_module_no_longer_exposes_legacy_router_and_rewrite_methods(monkeypatch):
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
+
+    assert not hasattr(module.GenerationIntegrationModule, "query_router")
+    assert not hasattr(module.GenerationIntegrationModule, "query_rewrite")
+
+
 def test_append_reference_lines_adds_references_once(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
@@ -130,7 +191,7 @@ def test_append_reference_lines_adds_references_once(monkeypatch):
 
 
 def test_stream_with_reference_lines_adds_references_once(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     doc = Document(
@@ -166,7 +227,7 @@ def test_stream_with_reference_lines_adds_references_once(monkeypatch):
 
 
 def test_generate_list_answer_includes_citation_numbers(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.generation_integration")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
     generator = module.GenerationIntegrationModule.__new__(module.GenerationIntegrationModule)
 
     parent_docs = [
@@ -186,8 +247,18 @@ def test_generate_list_answer_includes_citation_numbers(monkeypatch):
     assert "[1] 学生请假管理办法 - data/campus/regulations/student_affairs/学生请假管理办法.md" in answer
 
 
+def test_generation_module_default_model_matches_config_default(monkeypatch):
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.generation_integration")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+
+    generator = module.GenerationIntegrationModule()
+
+    assert generator.model_name == "qwen3.5-plus"
+    assert generator.llm.kwargs["model"] == "qwen3.5-plus"
+
+
 def test_rrf_rerank_keeps_distinct_chunks_with_same_content(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
     retriever = module.RetrievalOptimizationModule.__new__(module.RetrievalOptimizationModule)
 
     vector_chunk = Document(page_content="相同内容", metadata={"chunk_id": "chunk-a"})
@@ -199,7 +270,7 @@ def test_rrf_rerank_keeps_distinct_chunks_with_same_content(monkeypatch):
 
 
 def test_rrf_rerank_deduplicates_same_parent_chunk_from_different_retrievers(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
     retriever = module.RetrievalOptimizationModule.__new__(module.RetrievalOptimizationModule)
 
     vector_chunk = Document(
@@ -218,7 +289,7 @@ def test_rrf_rerank_deduplicates_same_parent_chunk_from_different_retrievers(mon
 
 
 def test_rrf_rerank_does_not_mutate_input_chunk_metadata(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
     retriever = module.RetrievalOptimizationModule.__new__(module.RetrievalOptimizationModule)
 
     original_chunk = Document(page_content="请假审批流程", metadata={"chunk_id": "chunk-a"})
@@ -229,8 +300,20 @@ def test_rrf_rerank_does_not_mutate_input_chunk_metadata(monkeypatch):
     assert "rrf_score" not in original_chunk.metadata
 
 
+def test_rrf_rerank_uses_instance_rrf_k_when_not_overridden(monkeypatch):
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
+    retriever = module.RetrievalOptimizationModule.__new__(module.RetrievalOptimizationModule)
+    retriever.rrf_k = 10
+
+    chunk = Document(page_content="考试证件要求", metadata={"chunk_id": "chunk-a"})
+
+    reranked = retriever._rrf_rerank([chunk], [])
+
+    assert reranked[0].metadata["rrf_score"] == 1 / 11
+
+
 def test_retrievers_use_candidate_count_and_chinese_preprocess(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
     captured = {}
 
     class FakeVectorStore:
@@ -257,7 +340,7 @@ def test_retrievers_use_candidate_count_and_chinese_preprocess(monkeypatch):
 
 
 def test_retrieval_module_exposes_vector_and_bm25_search_methods(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
 
     class FakeVectorRetriever:
         def invoke(self, query):
@@ -282,7 +365,7 @@ def test_retrieval_module_exposes_vector_and_bm25_search_methods(monkeypatch):
 
 
 def test_jieba_cut_for_search_imports_without_pkg_resources_shim(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
 
     assert not hasattr(module, "_build_pkg_resources_shim")
     assert not hasattr(module, "_temporary_pkg_resources_shim")
@@ -297,7 +380,7 @@ def test_jieba_cut_for_search_imports_without_pkg_resources_shim(monkeypatch):
 
 
 def test_metadata_filtered_search_rebuilds_bm25_from_all_filtered_chunks(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
     captured = {"factory_calls": []}
 
     class FakeVectorRetriever:
@@ -345,7 +428,7 @@ def test_metadata_filtered_search_rebuilds_bm25_from_all_filtered_chunks(monkeyp
 
 
 def test_metadata_filtered_search_fallback_uses_expanded_candidate_count(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
     captured = {"similarity_calls": []}
 
     chunks = [
@@ -390,7 +473,7 @@ def test_metadata_filtered_search_fallback_uses_expanded_candidate_count(monkeyp
 
 
 def test_bm25_setup_is_compatible_with_installed_langchain_community(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.retrieval_optimization")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.retrieval_optimization")
 
     class FakeVectorStore:
         def as_retriever(self, **kwargs):
@@ -404,7 +487,7 @@ def test_bm25_setup_is_compatible_with_installed_langchain_community(monkeypatch
 
 
 def test_source_fingerprint_changes_when_source_records_change(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.index_construction")
 
     first_fingerprint = module.IndexConstructionModule._fingerprint_source_records([
         {"relative_path": "regulations/student_affairs/学生请假管理办法.md", "content_sha256": "first"},
@@ -419,7 +502,7 @@ def test_source_fingerprint_changes_when_source_records_change(monkeypatch):
 
 
 def test_setup_embeddings_configures_request_timeout(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.index_construction")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
 
     indexer = module.IndexConstructionModule("text-embedding-v4", index_save_path="unused-index")
@@ -428,7 +511,7 @@ def test_setup_embeddings_configures_request_timeout(monkeypatch):
 
 
 def test_build_manifest_tracks_md_txt_and_pdf_sources(monkeypatch, tmp_path):
-    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.index_construction")
     indexer = module.IndexConstructionModule.__new__(module.IndexConstructionModule)
     indexer.model_name = "text-embedding-v4"
     indexer.embedding_dimensions = module.EMBEDDING_DIMENSIONS
@@ -455,7 +538,7 @@ def test_build_manifest_tracks_md_txt_and_pdf_sources(monkeypatch, tmp_path):
 
 
 def test_build_manifest_records_chunking_strategy_per_file_type(monkeypatch, tmp_path):
-    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.index_construction")
     indexer = module.IndexConstructionModule.__new__(module.IndexConstructionModule)
     indexer.model_name = "text-embedding-v4"
     indexer.embedding_dimensions = module.EMBEDDING_DIMENSIONS
@@ -475,7 +558,7 @@ def test_build_manifest_records_chunking_strategy_per_file_type(monkeypatch, tmp
 
 
 def test_load_index_returns_none_when_manifest_is_missing(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.index_construction")
     indexer = module.IndexConstructionModule.__new__(module.IndexConstructionModule)
     indexer.index_save_path = str(Path(__file__).resolve().parent)
     indexer.embeddings = object()
@@ -490,7 +573,7 @@ def test_load_index_returns_none_when_manifest_is_missing(monkeypatch):
 
 
 def test_load_index_uses_faiss_when_manifest_matches(monkeypatch):
-    module = _reload_module(monkeypatch, "rag_modules.index_construction")
+    module = _reload_module(monkeypatch, "campus_rag.pipeline.index_construction")
     indexer = module.IndexConstructionModule.__new__(module.IndexConstructionModule)
     index_path = Path(__file__).resolve().parent
     indexer.index_save_path = str(index_path)
@@ -517,3 +600,4 @@ def test_load_index_uses_faiss_when_manifest_matches(monkeypatch):
     monkeypatch.setattr(module.FAISS, "load_local", fake_load_local)
 
     assert indexer.load_index(expected_manifest) is sentinel_vectorstore
+

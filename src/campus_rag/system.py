@@ -1,25 +1,22 @@
-"""
-RAG系统主程序
-"""
+"""Campus knowledge RAG orchestration."""
 
-import os
-import sys
 import logging
+import os
+import time
 from pathlib import Path
-from typing import List
-
-# 将当前文件目录加入模块搜索路径，方便导入其他模块
-sys.path.append(str(Path(__file__).parent))
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from config import PROJECT_ROOT, RAGConfig
-from rag_modules import (
+
+from .config import PROJECT_ROOT, RAGConfig
+from .pipeline import (
     DataPreparationModule,
-    IndexConstructionModule,
-    RetrievalOptimizationModule,
     GenerationIntegrationModule,
+    IndexConstructionModule,
     RAGResponse,
+    RAGTrace,
     RetrievedSource,
+    RetrievalOptimizationModule,
 )
 
 # 拼接路径，加载环境变量
@@ -46,7 +43,7 @@ class CampusRAGSystem:
         """
         初始化RAG系统
         Args:
-            config: RAG系统配置，默认使用DEFAULT_CONFIG
+            config: RAG系统配置，默认从环境变量读取
         """
         self.config = config or RAGConfig.from_env()
         # 数据准备模块
@@ -136,6 +133,7 @@ class CampusRAGSystem:
             vectorstore,
             chunks,
             candidate_k=self.config.retrieval_candidate_k,
+            rrf_k=self.config.rrf_k,
         )
 
         # 6. 显示统计信息
@@ -149,47 +147,66 @@ class CampusRAGSystem:
 
         print("✅ 知识库构建完成！")
     
-    def ask_question(self, question: str, stream: bool = False, return_sources: bool = False):
+    def ask_question(
+        self,
+        question: str,
+        stream: bool = False,
+        return_sources: bool = False,
+        return_trace: bool = False,
+    ):
         """
         回答用户问题
         Args:
             question: 用户问题
             stream: 是否使用流式输出
             return_sources: 是否返回结构化回答和检索来源 （默认否）
+            return_trace: 是否返回查询链路调试信息（默认否）
         Returns:
             生成的回答、生成器或结构化RAG响应
         """
         if not all([self.retrieval_module, self.generation_module]):
             raise ValueError("请先构建知识库")
-        if stream and return_sources:
-            raise ValueError("结构化来源返回暂不支持流式输出")
+        if stream and (return_sources or return_trace):
+            raise ValueError("结构化来源或trace返回暂不支持流式输出")
+
+        total_start = time.perf_counter()
+        timings_ms = {
+            "analysis": 0.0, # 合并查询分析耗时
+            "retrieval": 0.0, # 检索耗时
+            "context_build": 0.0, # 上下文构建耗时
+            "generation": 0.0, # 回答生成耗时
+            "total": 0.0, # 总耗时
+        }
         
         print(f"\n❓ 用户问题: {question}")
 
-        # 1. 查询路由
-        route_type = self.generation_module.query_router(question)
+        # 1. 合并查询分析：一次 LLM 调用同时完成路由和改写
+        print("🤖 智能分析查询...")
+        analysis_start = time.perf_counter()
+        query_analysis = self.generation_module.analyze_query(question)
+        timings_ms["analysis"] = self._elapsed_ms(analysis_start)
+        route_type = query_analysis.route_type
+        rewritten_query = query_analysis.rewritten_query
         print(f"🎯 查询类型: {route_type}")
-
-        # 2. 智能查询重写（根据路由类型）
-        if route_type == 'list':
-            # 列表查询保持原查询
-            rewritten_query = question
-            print(f"📝 列表查询保持原样: {question}")
+        if rewritten_query == question:
+            print(f"📝 查询保持原样: {question}")
         else:
-            # 详细查询和一般查询使用智能重写
-            print("🤖 智能分析查询...")
-            rewritten_query = self.generation_module.query_rewrite(question)
+            print(f"📝 检索查询: {rewritten_query}")
         
-        # 3. 检索相关文档块（自动应用元数据过滤）
+        # 2. 检索相关文档块（自动应用元数据过滤）
         print("🔍 检索相关文档块...")
+        retrieval_start = time.perf_counter()
         filters = self._extract_filters_from_query(question)
         if filters:
             print(f"应用过滤条件: {filters}")
+            retrieval_strategy = "metadata_filtered"
             # 应用元数据过滤
             relevant_chunks = self.retrieval_module.metadata_filtered_search(rewritten_query, filters, top_k=self.config.top_k)
         else:
+            retrieval_strategy = "hybrid"
             # 无元数据过滤，使用混合检索
             relevant_chunks = self.retrieval_module.hybrid_search(rewritten_query, top_k=self.config.top_k)
+        timings_ms["retrieval"] = self._elapsed_ms(retrieval_start)
 
         # 显示检索到的文档块信息
         if relevant_chunks:
@@ -212,68 +229,124 @@ class CampusRAGSystem:
 
         # 4. 结构化来源需要等父文档确定后再构建，确保 source_id 与答案引用编号对齐
         sources = []
+        relevant_context_docs = []
 
         # 5. 检查是否找到相关内容
         if not relevant_chunks:
             answer = "抱歉，没有找到相关的校园文档信息。请尝试其他标题或关键词。"
-            if return_sources:
-                return self._build_rag_response(question, route_type, rewritten_query, answer, sources)
+            timings_ms["total"] = self._elapsed_ms(total_start)
+            trace = self._build_trace(
+                retrieval_strategy,
+                filters,
+                timings_ms,
+                relevant_chunks,
+                relevant_context_docs,
+                sources,
+            ) if return_trace else None
+            if return_sources or return_trace:
+                return self._build_rag_response(question, route_type, rewritten_query, answer, sources, trace)
             return answer
 
         # 6. 根据路由类型选择回答方式
         if route_type == 'list':
             # 列表查询：直接返回文档标题列表
             print("📋 生成文档列表...")
-            # 从检索到的文档块中映射出完整父文档
-            relevant_parent_docs = self.data_module.get_parent_documents(relevant_chunks)
+            # 基于召回块构建证据上下文，避免把完整父文档直接塞进生成阶段
+            context_start = time.perf_counter()
+            relevant_context_docs = self.data_module.get_context_documents(
+                relevant_chunks,
+                window_size=self.config.context_window_size,
+            )
+            timings_ms["context_build"] = self._elapsed_ms(context_start)
 
-            # 显示找到的完整文档名称
-            parent_doc_names = []
-            for parent_doc in relevant_parent_docs:
-                doc_title = parent_doc.metadata.get('doc_title', '未知文档')
-                parent_doc_names.append(doc_title)
+            # 显示找到的上下文文档名称
+            context_doc_names = []
+            for context_doc in relevant_context_docs:
+                doc_title = context_doc.metadata.get('doc_title', '未知文档')
+                context_doc_names.append(doc_title)
 
-            if parent_doc_names:
-                print(f"找到完整文档: {', '.join(parent_doc_names)}")
+            if context_doc_names:
+                print(f"找到证据上下文: {', '.join(context_doc_names)}")
 
-            sources = self._build_aligned_sources(relevant_parent_docs, relevant_chunks) if return_sources else []
-            answer = self.generation_module.generate_list_answer(question, relevant_parent_docs)
-            if return_sources:
-                return self._build_rag_response(question, route_type, rewritten_query, answer, sources)
+            sources = self._build_aligned_sources(relevant_context_docs, relevant_chunks) if (return_sources or return_trace) else []
+            generation_start = time.perf_counter()
+            answer = self.generation_module.generate_list_answer(question, relevant_context_docs)
+            timings_ms["generation"] = self._elapsed_ms(generation_start)
+            timings_ms["total"] = self._elapsed_ms(total_start)
+            trace = self._build_trace(
+                retrieval_strategy,
+                filters,
+                timings_ms,
+                relevant_chunks,
+                relevant_context_docs,
+                sources,
+            ) if return_trace else None
+            if return_sources or return_trace:
+                return self._build_rag_response(
+                    question,
+                    route_type,
+                    rewritten_query,
+                    answer,
+                    sources if return_sources else [],
+                    trace,
+                )
             return answer
         else:
-            # 详细查询：获取完整父文档并生成详细回答
-            print("获取完整父文档...")
-            relevant_parent_docs = self.data_module.get_parent_documents(relevant_chunks)
+            # 详细查询：获取证据上下文并生成详细回答
+            print("获取证据上下文...")
+            context_start = time.perf_counter()
+            relevant_context_docs = self.data_module.get_context_documents(
+                relevant_chunks,
+                window_size=self.config.context_window_size,
+            )
+            timings_ms["context_build"] = self._elapsed_ms(context_start)
 
-            # 显示找到的完整文档名称
-            parent_doc_names = []
-            for parent_doc in relevant_parent_docs:
-                doc_title = parent_doc.metadata.get('doc_title', '未知文档')
-                parent_doc_names.append(doc_title)
+            # 显示找到的上下文文档名称
+            context_doc_names = []
+            for context_doc in relevant_context_docs:
+                doc_title = context_doc.metadata.get('doc_title', '未知文档')
+                context_doc_names.append(doc_title)
 
-            if parent_doc_names:
-                print(f"找到完整文档: {', '.join(parent_doc_names)}")
+            if context_doc_names:
+                print(f"找到证据上下文: {', '.join(context_doc_names)}")
             else:
-                print(f"对应 {len(relevant_parent_docs)} 个完整父文档")
+                print(f"对应 {len(relevant_context_docs)} 个证据上下文")
 
-            sources = self._build_aligned_sources(relevant_parent_docs, relevant_chunks) if return_sources else []
+            sources = self._build_aligned_sources(relevant_context_docs, relevant_chunks) if (return_sources or return_trace) else []
             print("✍️ 生成详细回答...")
 
             # 根据路由类型自动选择回答模式
+            generation_start = time.perf_counter()
             if route_type == "detail":
                 # 详细查询使用分步指导模式
                 if stream:
-                    return self.generation_module.generate_step_by_step_answer_stream(question, relevant_parent_docs)
-                answer = self.generation_module.generate_step_by_step_answer(question, relevant_parent_docs)
+                    return self.generation_module.generate_step_by_step_answer_stream(question, relevant_context_docs)
+                answer = self.generation_module.generate_step_by_step_answer(question, relevant_context_docs)
             else:
                 # 一般查询使用基础回答模式
                 if stream:
-                    return self.generation_module.generate_basic_answer_stream(question, relevant_parent_docs)
-                answer = self.generation_module.generate_basic_answer(question, relevant_parent_docs)
+                    return self.generation_module.generate_basic_answer_stream(question, relevant_context_docs)
+                answer = self.generation_module.generate_basic_answer(question, relevant_context_docs)
+            timings_ms["generation"] = self._elapsed_ms(generation_start)
+            timings_ms["total"] = self._elapsed_ms(total_start)
 
-            if return_sources:
-                return self._build_rag_response(question, route_type, rewritten_query, answer, sources)
+            trace = self._build_trace(
+                retrieval_strategy,
+                filters,
+                timings_ms,
+                relevant_chunks,
+                relevant_context_docs,
+                sources,
+            ) if return_trace else None
+            if return_sources or return_trace:
+                return self._build_rag_response(
+                    question,
+                    route_type,
+                    rewritten_query,
+                    answer,
+                    sources if return_sources else [],
+                    trace,
+                )
             return answer
 
     def _build_aligned_sources(self, parent_docs: List, retrieved_chunks: List) -> List[RetrievedSource]:
@@ -325,6 +398,66 @@ class CampusRAGSystem:
             )
         return sources
 
+    def _build_trace(
+        self,
+        retrieval_strategy: str,
+        filters: Dict[str, Any],
+        timings_ms: Dict[str, float],
+        retrieved_chunks: List,
+        context_docs: List,
+        sources: List[RetrievedSource],
+    ) -> RAGTrace:
+        """构造 RAG 查询链路调试信息"""
+        return RAGTrace(
+            retrieval_strategy=retrieval_strategy,
+            filters=dict(filters or {}),
+            timings_ms={key: round(value, 2) for key, value in timings_ms.items()},
+            retrieval_params={
+                "top_k": self.config.top_k,
+                "candidate_k": self.config.retrieval_candidate_k,
+                "rrf_k": self.config.rrf_k,
+                "context_window_size": self.config.context_window_size,
+            },
+            retrieved_chunks=[
+                self._build_retrieved_chunk_trace(rank, chunk)
+                for rank, chunk in enumerate(retrieved_chunks, 1)
+            ],
+            context_documents=[
+                self._build_context_document_trace(source_id, context_doc)
+                for source_id, context_doc in enumerate(context_docs, 1)
+            ],
+            source_count=len(sources),
+        )
+
+    def _build_retrieved_chunk_trace(self, rank: int, chunk) -> Dict[str, Any]:
+        """构造单个召回块的调试摘要"""
+        metadata = chunk.metadata or {}
+        return {
+            "rank": rank,
+            "doc_title": metadata.get("doc_title", "未知文档"),
+            "section": self._extract_section_title(chunk),
+            "chunk_index": self._safe_int(metadata.get("chunk_index"), None),
+            "rrf_score": self._safe_float(metadata.get("rrf_score")),
+        }
+
+    def _build_context_document_trace(self, source_id: int, context_doc) -> Dict[str, Any]:
+        """构造单个证据上下文文档的调试摘要"""
+        metadata = context_doc.metadata or {}
+        return {
+            "source_id": source_id,
+            "doc_title": metadata.get("doc_title", "未知文档"),
+            "context_window_size": self._safe_int(
+                metadata.get("context_window_size"),
+                self.config.context_window_size,
+            ),
+            "context_chunk_indices": list(metadata.get("context_chunk_indices") or []),
+        }
+
+    @staticmethod
+    def _elapsed_ms(start_time: float) -> float:
+        """计算从 start_time 到当前的毫秒耗时"""
+        return (time.perf_counter() - start_time) * 1000
+
     @staticmethod
     def _build_rag_response(
         question: str,
@@ -332,6 +465,7 @@ class CampusRAGSystem:
         rewritten_query: str,
         answer: str,
         sources: List[RetrievedSource],
+        trace: RAGTrace = None,
     ) -> RAGResponse:
         """创建结构化RAG响应"""
         return RAGResponse(
@@ -340,6 +474,7 @@ class CampusRAGSystem:
             rewritten_query=rewritten_query,
             answer=answer,
             sources=sources,
+            trace=trace,
         )
 
     @staticmethod
@@ -454,25 +589,4 @@ class CampusRAGSystem:
                 print(f"处理问题时出错: {e}")
         
         print("\n感谢使用校园知识库RAG系统！")
-
-
-
-def main():
-    """主函数"""
-    try:
-        # 创建RAG系统
-        rag_system = CampusRAGSystem()
-        
-        # 运行交互式问答
-        rag_system.run_interactive()
-        
-    except Exception as e:
-        logger.error(f"系统运行出错: {e}")
-        print(f"系统错误: {e}")
-
-if __name__ == "__main__":
-    main()
-
-
-
 
